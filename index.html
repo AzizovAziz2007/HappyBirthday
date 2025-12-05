@@ -95,7 +95,7 @@ const cloudContent = [
 
 const CLOUD_SIZE_FACTOR = 0.55; 
 const CLOUD_SPEED = 0.9;        
-const GAP_BETWEEN_CLOUDS = 50; // Точный зазор в пикселях
+const GAP_BETWEEN_CLOUDS = 80; // Хороший зазор, чтобы не слипались
 
 // --- ГРАФИКА ---
 let W, H;
@@ -106,7 +106,7 @@ function resize() { W = window.innerWidth; H = window.innerHeight; canvas.width 
 window.addEventListener('resize', resize);
 resize();
 
-// === КЛАСС ОБЛАКА ===
+// === КЛАСС ОБЛАКА (БЕЗОПАСНЫЙ РЕЖИМ) ===
 class PhotoCloud {
     constructor(data, startX, startY) {
         this.img = data.img;
@@ -115,7 +115,7 @@ class PhotoCloud {
         this.y = startY;
         this.speed = CLOUD_SPEED;
 
-        // 1. Размеры фото
+        // 1. Считаем размеры картинки
         const baseSize = Math.min(W, H) * CLOUD_SIZE_FACTOR; 
         let imgW = baseSize;
         let imgH = baseSize * 0.7;
@@ -140,36 +140,28 @@ class PhotoCloud {
         this.paddingY = baseSize * 0.15;
         this.textHeight = baseSize * 0.1;
 
-        // Размеры рамки
+        // "Коробка" облака
         this.totalW = contentWidth + this.paddingX * 2;
         this.totalH = imgH + this.textHeight + this.paddingY * 2;
 
-        // 4. Генерация пузырей
+        // Пузыри
         this.blobs = [];
-        this.blobs.push({dx: 0, dy: 0, r: Math.max(this.totalW, this.totalH) * 0.5}); // Центр
+        this.blobs.push({x: 0, y: 0, r: Math.max(this.totalW, this.totalH) * 0.5});
         
         const hw = this.totalW / 2;
         const hh = this.totalH / 2;
+        const cornerR = this.totalH * 0.4;
         
-        this.blobs.push({dx: -hw, dy: -hh*0.5, r: this.totalH*0.4});
-        this.blobs.push({dx: hw, dy: -hh*0.5, r: this.totalH*0.4});
-        this.blobs.push({dx: -hw, dy: hh*0.5, r: this.totalH*0.4});
-        this.blobs.push({dx: hw, dy: hh*0.5, r: this.totalH*0.4});
-        this.blobs.push({dx: 0, dy: -hh*0.8, r: this.totalW*0.3}); 
-        this.blobs.push({dx: 0, dy: hh*0.8, r: this.totalW*0.3});  
+        this.blobs.push({x: -hw, y: -hh*0.5, r: cornerR});
+        this.blobs.push({x: hw, y: -hh*0.5, r: cornerR});
+        this.blobs.push({x: -hw, y: hh*0.5, r: cornerR});
+        this.blobs.push({x: hw, y: hh*0.5, r: cornerR});
+        this.blobs.push({x: 0, y: -hh*0.8, r: this.totalW*0.3}); 
+        this.blobs.push({x: 0, y: hh*0.8, r: this.totalW*0.3});  
 
-        // 5. РАСЧЕТ РЕАЛЬНОЙ ШИРИНЫ (С учетом выпирающих пузырей)
-        let minX = 0, maxX = 0;
-        this.blobs.forEach(b => {
-            if (b.dx - b.r < minX) minX = b.dx - b.r;
-            if (b.dx + b.r > maxX) maxX = b.dx + b.r;
-        });
-        // Это реальная ширина от края до края пузырей
-        this.realWidth = maxX - minX;
-        // Расстояние от центра до правого края (для стыковки)
-        this.distToRight = maxX;
-        // Расстояние от центра до левого края
-        this.distToLeft = Math.abs(minX);
+        // Реальная визуальная ширина (от центра до самого дальнего края пузыря)
+        // Это нужно, чтобы правильно считать отступы и старт
+        this.visualHalfWidth = hw + cornerR; 
     }
 
     draw() {
@@ -183,14 +175,15 @@ class PhotoCloud {
         ctx.roundRect(-hw, -hh, this.totalW, this.totalH, r);
         
         this.blobs.forEach(b => {
-            ctx.moveTo(b.dx + b.r, b.dy);
-            ctx.arc(b.dx, b.dy, b.r, 0, Math.PI * 2);
+            ctx.moveTo(b.x + b.r, b.y);
+            ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
         });
 
         ctx.shadowColor = 'rgba(255, 255, 255, 0.9)'; 
         ctx.shadowBlur = 30; 
         ctx.fillStyle = '#FFFFFF'; 
         ctx.fill();
+        
         ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
 
         if (this.text) {
@@ -420,32 +413,35 @@ function animate() {
                 if (!cloudsSpawned) {
                     cloudsSpawned = true; 
                     
-                    let firstCloud = new PhotoCloud(loadedContent[0], 0, 0);
-                    // СТАРТ: Правый край облака (distToRight) должен быть за левым краем экрана
-                    // То есть: CenterX + distToRight = -10 (немного за экраном)
-                    // CenterX = -10 - distToRight
-                    let currentX = - (firstCloud.distToRight + 10); 
-
+                    // СОЗДАЕМ ОЧЕРЕДЬ ОБЪЕКТОВ
+                    let pendingClouds = [];
                     for(let i=0; i<loadedContent.length; i++) { 
-                        let tempCloud = new PhotoCloud(loadedContent[i], 0, 0);
+                        pendingClouds.push(new PhotoCloud(loadedContent[i], 0, 0));
+                    }
+
+                    // Ставим первое облако так, чтобы его САМЫЙ ПРАВЫЙ (пушистый) край был за экраном
+                    let firstCloud = pendingClouds[0];
+                    let currentX = - (firstCloud.visualHalfWidth + 50);
+
+                    for(let i=0; i<pendingClouds.length; i++) { 
+                        let cloud = pendingClouds[i];
                         
-                        // Используем REAL width (distToRight + distToLeft)
-                        let myHalfW = tempCloud.distToRight; // Расстояние от центра до правого края
-                        let myLeftPart = tempCloud.distToLeft; // Расстояние от центра до левого края
+                        cloud.x = currentX;
                         
-                        // Сдвигаем на левую часть текущего
-                        currentX -= myHalfW; 
-                        
-                        let cX = currentX;
                         let cY; 
                         let offset = H * 0.12; 
                         if (i % 3 === 0) cY = H/2 - offset; else if (i % 3 === 1) cY = H/2 + offset; else cY = H/2; 
                         cY += (Math.random() * 20 - 10); 
+                        cloud.y = cY;
+
+                        activePhotoClouds.push(cloud);
                         
-                        activePhotoClouds.push(new PhotoCloud(loadedContent[i], cX, cY));
-                        
-                        // Готовим позицию для следующего: сдвигаем на левую часть текущего + зазор
-                        currentX -= (myLeftPart + GAP_BETWEEN_CLOUDS);
+                        if (i < pendingClouds.length - 1) {
+                            let nextCloud = pendingClouds[i+1];
+                            // Отступ считаем по визуальным границам пузырей
+                            let distance = cloud.visualHalfWidth + GAP_BETWEEN_CLOUDS + nextCloud.visualHalfWidth;
+                            currentX -= distance;
+                        }
                     }
                 }
                 for (let i = 0; i < activePhotoClouds.length; i++) {
