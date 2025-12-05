@@ -29,23 +29,24 @@
             z-index: 20; text-shadow: 0 0 20px #FFD700; width: 100%;
         }
 
-        /* Стили для финального видео */
+        /* ВИДЕО ПЛЕЕР */
         #finalVideo {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            object-fit: contain; /* Чтобы видео поместилось целиком. Если нужно на весь экран без полос - поставь cover */
-            display: none; /* Скрыто по умолчанию */
+            object-fit: contain; 
+            display: none; 
             z-index: 30; background: #000;
         }
     </style>
 </head>
 <body>
 
-<!-- АУДИО ПЛЕЕР -->
 <audio id="bgMusic"></audio>
 
-<!-- ФИНАЛЬНОЕ ВИДЕО (Замени video.mp4 на свое название, если нужно) -->
-<video id="finalVideo" controls playsinline>
+<!-- ВАЖНО: Проверьте, чтобы файл в репозитории назывался точно так же: video.mp4 (маленькими буквами) -->
+<video id="finalVideo" controls playsinline preload="auto">
     <source src="video.mp4" type="video/mp4">
+    <!-- Запасной вариант, если видео не поддерживается -->
+    Ваш браузер не поддерживает видео.
 </video>
 
 <div id="startScreen">
@@ -61,49 +62,32 @@
 <canvas id="mainCanvas"></canvas>
 
 <script>
-// =========================================================
-// === 1. СПИСОК МУЗЫКИ ===
-// =========================================================
+// === МУЗЫКА ===
 const musicPlaylist = [
     "music1.mp3",
     "music2.mp3",
     "music3.mp3"
 ];
 
-// =========================================================
-// === 2. СПИСОК ФОТОГРАФИЙ ===
-// =========================================================
+// === ФОТО ===
 const photoURLs = [
-    "мем1.png",
-    "мем2.png",
-    "мем4.png",
-    "мем5.png",
-    "мем6.png",
-    "мем7.png",
-    "мем1Соня.png",
-    "мем2Соня.png",
-    "мем3Соня.png",
-    "мем4Соня.png",
-    "мем5Соня.png",
-    "мем6Соня.png",
-    "мем7Соня.png",
-    "мем8Соня.png",
-    "мем9Соня.png",
-    "мем10Соня.png",
-    "мем13Соня.png"
+    "мем1.png"
 ];
-// =========================================================
 
 const CLOUD_SIZE_FACTOR = 0.55; 
 const CLOUD_SPEED = 0.9;        
 const CLOUD_GAP_FACTOR = 1.1;   
 
-// --- ПЕРЕМЕННЫЕ ---
 let isEnding = false;
 let fadeOpacity = 0;
-let videoTriggered = false; // Флаг, чтобы видео запустилось один раз
-
+let videoTriggered = false; 
 let currentSongIndex = 0; 
+
+// Проверяем видео на ошибки при загрузке
+const vid = document.getElementById('finalVideo');
+vid.onerror = function() {
+    console.log("Ошибка загрузки видео");
+};
 
 function startCelebration() {
     openFullscreen();
@@ -137,38 +121,47 @@ function playNextSong() {
     };
 }
 
-// --- ФУНКЦИЯ ЗАПУСКА ВИДЕО ---
+// --- ЗАПУСК ВИДЕО (С ПРОВЕРКОЙ ОШИБОК) ---
 function launchFinalVideo() {
     const vid = document.getElementById('finalVideo');
     const msg = document.getElementById('endMessage');
     const canvas = document.getElementById('mainCanvas');
     const audio = document.getElementById('bgMusic');
 
-    // Останавливаем фоновую музыку окончательно
+    // 1. Глушим музыку
     audio.pause(); 
 
-    // Скрываем анимацию и текст
+    // 2. Убираем всё лишнее
     canvas.style.display = 'none';
     msg.style.display = 'none';
 
-    // Показываем и запускаем видео
+    // 3. Показываем плеер
     vid.style.display = 'block';
-    vid.play().catch(e => console.log("Ошибка запуска видео:", e));
+
+    // 4. Пробуем запустить
+    const playPromise = vid.play();
+
+    if (playPromise !== undefined) {
+        playPromise.then(_ => {
+            // Видео запустилось успешно!
+            console.log("Видео играет");
+        })
+        .catch(error => {
+            // Если ошибка - выводим её на экран, чтобы понять причину
+            alert("Не удалось запустить видео! \nПричина: " + error + "\n\nПроверьте: \n1. Называется ли файл video.mp4 (маленькими буквами)?\n2. Лежит ли он в той же папке?");
+            console.error("Ошибка видео:", error);
+        });
+    }
 }
 
 // --- ГРАФИКА ---
 const totalStars = 13;
-const moveDuration = 1000; const mergeDuration = 700; const flashDuration = 750;
-const fallDuration = 3500; const groundFlashDuration = 1700; const snowflakeCount = 65;
-
+const snowflakeCount = 65;
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
 let W, H;
 
-function resize() {
-    W = window.innerWidth; H = window.innerHeight;
-    canvas.width = W; canvas.height = H;
-}
+function resize() { W = window.innerWidth; H = window.innerHeight; canvas.width = W; canvas.height = H; }
 window.addEventListener('resize', resize);
 resize();
 
@@ -194,15 +187,11 @@ function createStars() {
 }
 
 let snowflakes = [];
-function generateSnowflakes() {
-    snowflakes=[]; for(let i=0;i<snowflakeCount;i++) snowflakes.push({x: Math.random()*W, y: Math.random()*H, r: 1.35+Math.random()*1.7, a: 0.42+Math.random()*0.42});
-}
+function generateSnowflakes() { snowflakes=[]; for(let i=0;i<snowflakeCount;i++) snowflakes.push({x: Math.random()*W, y: Math.random()*H, r: 1.35+Math.random()*1.7, a: 0.42+Math.random()*0.42}); }
 
 let plane = { x: -400, y: H * 0.25, speed: 5, wobble: 0, finished: false };
 let clouds = [];
-function initClouds() {
-    for(let i=0; i<6; i++) clouds.push({x: Math.random()*W, y: Math.random()*(H*0.5), size: 0.4+Math.random()*0.4, speed: 0.2+Math.random()*0.3});
-}
+function initClouds() { for(let i=0; i<6; i++) clouds.push({x: Math.random()*W, y: Math.random()*(H*0.5), size: 0.4+Math.random()*0.4, speed: 0.2+Math.random()*0.3}); }
 
 class PhotoCloud {
     constructor(image, startX, startY) {
@@ -226,9 +215,7 @@ class PhotoCloud {
             let drawW = this.width * 1.5; let drawH = drawW / imgRatio;
             if (drawH < this.height * 1.5) { drawH = this.height * 1.5; drawW = drawH * imgRatio; }
             ctx.drawImage(this.img, -drawW/2, -drawH/2, drawW, drawH);
-        } else {
-            ctx.fillStyle = "#f0f0f0"; ctx.fill(); 
-        }
+        } else { ctx.fillStyle = "#f0f0f0"; ctx.fill(); }
         ctx.restore();
     }
     update() { this.x += this.speed; }
@@ -237,13 +224,11 @@ class PhotoCloud {
 let activePhotoClouds = []; let cloudsSpawned = false;
 function lerp(a, b, t) { return a+(b-a)*t; }
 function ease(t) { return t<.5 ? 2*t*t : -1+(4-2*t)*t; }
-
 function drawStarShape(x, y, r, color, opacity=1, shadow=12, rotation=0) {
     ctx.save(); ctx.globalAlpha = opacity; ctx.translate(x, y); ctx.rotate(rotation); ctx.beginPath();
     for (let i=0; i<5; i++) { ctx.lineTo(r*Math.cos(-Math.PI/2+i*2*Math.PI/5), r*Math.sin(-Math.PI/2+i*2*Math.PI/5)); ctx.lineTo(r/2*Math.cos(-Math.PI/2+(i*2+1)*Math.PI/5), r/2*Math.sin(-Math.PI/2+(i*2+1)*Math.PI/5)); }
     ctx.closePath(); ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = shadow; ctx.fill(); ctx.restore();
 }
-
 function drawWinterBackground() {
     let grad = ctx.createLinearGradient(0,0,0,H); grad.addColorStop(0,'#EAF0FA'); grad.addColorStop(0.5,'#c5deee'); grad.addColorStop(1,'#fbeff3');
     ctx.fillStyle=grad; ctx.fillRect(0,0,W,H);
@@ -251,11 +236,8 @@ function drawWinterBackground() {
     let sunGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, sunR*1.15); sunGrad.addColorStop(0, 'rgba(255,245,220,1)'); sunGrad.addColorStop(1, 'rgba(255,236,200,0)');
     ctx.save(); ctx.globalAlpha = 0.96; ctx.beginPath(); ctx.arc(sunX, sunY, sunR*1.1, 0, 2*Math.PI); ctx.fillStyle = sunGrad; ctx.shadowColor = 'rgba(255,233,180,0.35)'; ctx.shadowBlur = 38; ctx.fill(); ctx.restore();
 }
-
 function drawSnow() { for(let s of snowflakes) { s.y += 0.5; if(s.y > H) s.y = -10; ctx.save(); ctx.globalAlpha = s.a; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,2*Math.PI); ctx.fillStyle = "#fff"; ctx.shadowColor = "#e0e6ff"; ctx.shadowBlur = 7+s.r*2; ctx.fill(); ctx.restore(); } }
-
 function drawCloud(c) { ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; ctx.beginPath(); ctx.arc(c.x, c.y, 30*c.size, 0, Math.PI*2); ctx.arc(c.x+25*c.size, c.y-15*c.size, 35*c.size, 0, Math.PI*2); ctx.arc(c.x+50*c.size, c.y, 30*c.size, 0, Math.PI*2); ctx.fill(); }
-
 function drawPlaneVisuals(x, y) {
     ctx.save(); ctx.translate(x, y); const scale = Math.min(W, H) / 1000; ctx.scale(scale * 1.5, scale * 1.5); 
     ctx.fillStyle = 'rgba(0,0,0,0.1)'; ctx.beginPath(); ctx.ellipse(0, 20, 60, 15, 0, 0, Math.PI*2); ctx.fill();
@@ -266,7 +248,6 @@ function drawPlaneVisuals(x, y) {
     ctx.save(); ctx.translate(60, 0); ctx.rotate(Date.now() / 50); ctx.fillStyle = '#333'; ctx.fillRect(-2, -25, 4, 50); ctx.restore();
     ctx.fillStyle = '#87CEEB'; ctx.beginPath(); ctx.ellipse(15, -8, 10, 6, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
 }
-
 function drawBanner(px, py) {
     const text = "С ДНЕМ РОЖДЕНИЯ!"; const scale = Math.min(W, H) / 1000; const finalScale = scale * 1.5;
     ctx.save(); ctx.font = `bold ${24 * finalScale}px Arial`; const textMetrics = ctx.measureText(text); const bannerWidth = textMetrics.width + (40 * finalScale); const bannerHeight = 40 * finalScale;
@@ -281,19 +262,18 @@ function drawBanner(px, py) {
     ctx.fillStyle = '#FF4500'; ctx.textAlign = "center"; ctx.textBaseline = "middle"; const centerWave = Math.sin((bannerWidth/2 / 20) + time) * (5 * finalScale); ctx.fillText(text, bannerStartX - bannerWidth/2, py + centerWave); ctx.restore();
 }
 
-let mergeStarted = false, mergeStartTime = 0; let flashActive = false, flashStartTime = 0; let bigStarMode = false, bigStarStart = 0; let afterFall = false; let groundFlashActive = false, groundFlashStart = 0; let transitionedToMorning = false;
-const appearInterval = 480; const appearDuration = 400;
-
+// --- АНИМАЦИЯ ---
+const appearInterval = 480; const appearDuration = 400; const moveDuration = 1000; const mergeDuration = 700; const flashDuration = 750; const fallDuration = 3500; const groundFlashDuration = 1700;
 function startAppearSequence() { for (let i=0; i<stars.length; i++) setTimeout(()=> { stars[i].state="appearing"; stars[i].appearStart=Date.now(); }, appearInterval*i); setTimeout(()=>moveAllToCenter(), appearInterval*stars.length+appearDuration); }
 function moveAllToCenter() { for (let star of stars) { star.state="flying"; star.flyStart=Date.now(); } }
-function startMerge() { if (!mergeStarted) { mergeStarted=true; mergeStartTime=Date.now(); flashActive=true; flashStartTime=mergeStartTime; for(let s of stars) {s.state="merging"; s.mergeStart=mergeStartTime;} } }
-function startBigStar() { if (!bigStarMode) { bigStarMode = true; bigStarStart = Date.now(); } }
-function startGroundFlash() { groundFlashActive = true; groundFlashStart = Date.now(); }
+let mergeStarted = false, mergeStartTime = 0; function startMerge() { if (!mergeStarted) { mergeStarted=true; mergeStartTime=Date.now(); flashActive=true; flashStartTime=mergeStartTime; for(let s of stars) {s.state="merging"; s.mergeStart=mergeStartTime;} } }
+let bigStarMode = false, bigStarStart = 0; function startBigStar() { if (!bigStarMode) { bigStarMode = true; bigStarStart = Date.now(); } }
+let groundFlashActive = false, groundFlashStart = 0; function startGroundFlash() { groundFlashActive = true; groundFlashStart = Date.now(); }
 function drawFullFlash(opacity) { ctx.save(); ctx.globalAlpha = opacity; ctx.fillStyle = 'rgba(255, 250, 210, 1)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
+let flashActive = false, flashStartTime = 0; let afterFall = false; let transitionedToMorning = false;
 
 function animate() {
     center.x = W/2; 
-
     if (!transitionedToMorning) { ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H); }
     let now=Date.now(); let allInCenter = stars.every(s => s.state==="inCenter") && !mergeStarted;
     
@@ -306,41 +286,21 @@ function animate() {
             drawStarShape(star.sx, star.sy, star.size, 'gold', t);
         }
     }
-    
     if (allInCenter) startMerge();
     if (mergeStarted && !bigStarMode) { let t = Math.min((now-mergeStartTime)/mergeDuration,1); drawStarShape(center.x, center.y, Math.max(W,H)/26, 'gold', t, 28); if (t === 1) setTimeout(() => startBigStar(), 350); }
     if (flashActive) { let t = (now-flashStartTime)/flashDuration; if (t<1) { drawFullFlash(0.36*(1-t)); ctx.save(); ctx.globalAlpha = 0.61*(1-t); var grad = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, Math.max(W,H)*0.7); grad.addColorStop(0, 'rgba(255, 235, 100, 1)'); grad.addColorStop(1, 'rgba(255, 202, 84, 0)'); ctx.beginPath(); ctx.arc(center.x, center.y, Math.max(W,H)*0.76, 0, 2*Math.PI); ctx.fillStyle = grad; ctx.fill(); ctx.restore(); } else flashActive = false; }
-    if (bigStarMode && !afterFall) { 
-        let t = Math.min((now-bigStarStart)/fallDuration, 1); let curve = ease(t); 
-        let y = lerp(center.y, H * 0.85, curve); 
-        let x = lerp(center.x, center.x + W*0.19, curve*0.82 + t*0.18); 
-        let r = lerp(Math.max(W,H)/26, Math.max(W,H)/64, t); let rot = t*2*Math.PI*1.07; 
-        for(let i=0; i<20 && t > 0; i++){ let trailT = t - i*0.035; if(trailT<=0)continue; let trailCurve = ease(trailT); let tx = lerp(center.x, center.x+W*0.19, trailCurve*0.82 + trailT*0.18); let ty = lerp(center.y, H * 0.85, trailCurve); drawStarShape(tx, ty, r*0.77, 'gold', 0.1*(1-i/19)*(1-trailT), 8, rot-i*0.115); } 
-        if (t < 1) drawStarShape(x, y, r, 'gold', lerp(1,0.56,t), 24, rot); if (t === 1 && !afterFall) { afterFall = true; setTimeout(()=>startGroundFlash(), 60); } 
-    }
-
+    if (bigStarMode && !afterFall) { let t = Math.min((now-bigStarStart)/fallDuration, 1); let curve = ease(t); let y = lerp(center.y, H * 0.85, curve); let x = lerp(center.x, center.x + W*0.19, curve*0.82 + t*0.18); let r = lerp(Math.max(W,H)/26, Math.max(W,H)/64, t); let rot = t*2*Math.PI*1.07; for(let i=0; i<20 && t > 0; i++){ let trailT = t - i*0.035; if(trailT<=0)continue; let trailCurve = ease(trailT); let tx = lerp(center.x, center.x+W*0.19, trailCurve*0.82 + trailT*0.18); let ty = lerp(center.y, H * 0.85, trailCurve); drawStarShape(tx, ty, r*0.77, 'gold', 0.1*(1-i/19)*(1-trailT), 8, rot-i*0.115); } if (t < 1) drawStarShape(x, y, r, 'gold', lerp(1,0.56,t), 24, rot); if (t === 1 && !afterFall) { afterFall = true; setTimeout(()=>startGroundFlash(), 60); } }
     if (groundFlashActive || transitionedToMorning) {
         let t = (now-groundFlashStart)/groundFlashDuration;
         if (transitionedToMorning) {
-            drawWinterBackground(); 
-            clouds.forEach(cloud => { cloud.x -= cloud.speed; if (cloud.x < -100) { cloud.x = W + 100; cloud.y = Math.random() * (H / 2); } drawCloud(cloud); });
-            
-            if (!plane.finished) { 
-                plane.x += plane.speed; plane.wobble = Math.sin(Date.now() / 500) * 10; 
-                drawPlaneVisuals(plane.x, plane.y + plane.wobble); 
-                drawBanner(plane.x, plane.y + plane.wobble); 
-                if (plane.x > W + 800) plane.finished = true; 
-            } else {
+            drawWinterBackground(); clouds.forEach(cloud => { cloud.x -= cloud.speed; if (cloud.x < -100) { cloud.x = W + 100; cloud.y = Math.random() * (H / 2); } drawCloud(cloud); });
+            if (!plane.finished) { plane.x += plane.speed; plane.wobble = Math.sin(Date.now() / 500) * 10; drawPlaneVisuals(plane.x, plane.y + plane.wobble); drawBanner(plane.x, plane.y + plane.wobble); if (plane.x > W + 800) plane.finished = true; } 
+            else {
                 if (!cloudsSpawned) {
                     cloudsSpawned = true; const tempCloud = new PhotoCloud(null, 0, 0); const cloudWidth = tempCloud.width; const cloudGap = cloudWidth * CLOUD_GAP_FACTOR; let startX = -600; 
                     for(let i=0; i<loadedImages.length; i++) { let cX = startX - (i * cloudGap); let cY; let offset = H * 0.12; if (i % 3 === 0) cY = H/2 - offset; else if (i % 3 === 1) cY = H/2 + offset; else cY = H/2; cY += (Math.random() * 20 - 10); activePhotoClouds.push(new PhotoCloud(loadedImages[i], cX, cY)); }
                 }
-                for (let i = 0; i < activePhotoClouds.length; i++) {
-                    let pc = activePhotoClouds[i]; pc.update(); pc.draw();
-                    if (pc.x > W + pc.width) { activePhotoClouds.splice(i, 1); i--; }
-                }
-                
-                // Проверка на финал
+                for (let i = 0; i < activePhotoClouds.length; i++) { let pc = activePhotoClouds[i]; pc.update(); pc.draw(); if (pc.x > W + pc.width) { activePhotoClouds.splice(i, 1); i--; } }
                 if (cloudsSpawned && activePhotoClouds.length === 0 && !isEnding) {
                     isEnding = true;
                     document.getElementById('endMessage').style.opacity = 1;
@@ -359,23 +319,15 @@ function animate() {
         ctx.fillRect(0, 0, W, H);
         
         const audio = document.getElementById('bgMusic');
-        if (audio.volume > 0.003) {
-            let newVol = audio.volume - 0.003; 
-            audio.volume = newVol;
-        } else {
-             audio.volume = 0;
-        }
+        if (audio.volume > 0.003) { let newVol = audio.volume - 0.003; audio.volume = newVol; } else { audio.volume = 0; }
 
-        // Если экран полностью черный и видео еще не запущено
         if (fadeOpacity >= 1 && !videoTriggered) {
             videoTriggered = true;
-            // Запускаем видео через 3 секунды после темноты
             setTimeout(launchFinalVideo, 3000);
         }
     }
     requestAnimationFrame(animate);
 }
-
 window.addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; canvas.width = W; canvas.height = H; });
 resize(); 
 </script>
