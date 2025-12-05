@@ -2,6 +2,8 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <!-- Важный тег для корректного отображения на мобильных -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>С Днем Рождения!</title>
     <style>
         html, body { margin: 0; padding: 0; overflow: hidden; background: #000; height: 100vh; font-family: Arial, sans-serif; }
@@ -26,7 +28,7 @@
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             color: #fff; font-size: 40px; opacity: 0; pointer-events: none;
             transition: opacity 3s ease-in; text-align: center;
-            z-index: 20; text-shadow: 0 0 20px #FFD700;
+            z-index: 20; text-shadow: 0 0 20px #FFD700; width: 100%;
         }
     </style>
 </head>
@@ -94,20 +96,33 @@ let fadeOpacity = 0;
 let currentSongIndex = 0; 
 
 function startCelebration() {
+    // 1. Пытаемся включить полный экран
+    openFullscreen();
+
+    // 2. Скрываем меню и запускаем все остальное
     document.getElementById('startScreen').style.display = 'none';
     playNextSong();
     
     // Инициализация размеров при старте
-    W = window.innerWidth; H = window.innerHeight;
-    canvas.width = W; canvas.height = H;
-
+    resize();
     stars = createStars();
     startAppearSequence();
     animate();
 }
 
+// Функция для включения полноэкранного режима
+function openFullscreen() {
+    const elem = document.documentElement;
+    if (elem.requestFullscreen) {
+        elem.requestFullscreen().catch(err => console.log("Fullscreen blocked:", err));
+    } else if (elem.webkitRequestFullscreen) { /* Safari */
+        elem.webkitRequestFullscreen();
+    } else if (elem.msRequestFullscreen) { /* IE11 */
+        elem.msRequestFullscreen();
+    }
+}
+
 function playNextSong() {
-    // Если начался финал, новую песню не включаем
     if (isEnding) return;
 
     const audio = document.getElementById('bgMusic');
@@ -116,7 +131,7 @@ function playNextSong() {
     audio.play().catch(e => console.log("Ошибка звука:", e));
 
     audio.onended = function() {
-        if (isEnding) return; // Проверка на случай финала
+        if (isEnding) return; 
 
         currentSongIndex++; 
         if (currentSongIndex >= musicPlaylist.length) {
@@ -134,8 +149,15 @@ const fallDuration = 3500; const groundFlashDuration = 1700; const snowflakeCoun
 
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
-let W = window.innerWidth, H = window.innerHeight;
-canvas.width = W; canvas.height = H;
+let W, H;
+
+function resize() {
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W; canvas.height = H;
+}
+window.addEventListener('resize', resize);
+// Вызываем resize сразу, чтобы W и H были корректны до клика
+resize();
 
 let loadedImages = [];
 photoURLs.forEach(url => {
@@ -146,18 +168,23 @@ photoURLs.forEach(url => {
 });
 
 let stars = [];
-// Поднял нижнюю границу с 0.96 до 0.92, чтобы не уходили за экран
-const startMinY = () => H * 0.65;
-const startMaxY = () => H * 0.92; 
-const minX = 0.09 * W, maxX = 0.91 * W;
-const center = { x: W/2, y: H*0.19 };
+
+// === ИСПРАВЛЕНИЕ: Поднял границы еще выше ===
+// Было 0.92, стало 0.80. Теперь звезды занимают только верхние 80% экрана.
+// Это гарантирует, что они не залезут под панель задач.
+const startMinY = () => H * 0.60;
+const startMaxY = () => H * 0.80; 
+
+const minX = () => 0.09 * W; 
+const maxX = () => 0.91 * W;
+let center = { x: W/2, y: H*0.19 };
 
 function createStars() {
-    let sector = (maxX-minX)/totalStars; let arr = [];
+    let sector = (maxX()-minX())/totalStars; let arr = [];
     for (let i=0; i<totalStars; i++)
         arr.push({
-            sx: minX+i*sector+Math.random()*sector*0.7, 
-            sy: startMinY()+Math.random()*(startMaxY()-startMinY()), // Используем функции для Y
+            sx: minX()+i*sector+Math.random()*sector*0.7, 
+            sy: startMinY()+Math.random()*(startMaxY()-startMinY()), 
             size: 13+Math.random()*6, state: 'hidden', appearStart: 0, flyStart: 0, mergeStart: 0
         });
     return arr;
@@ -262,12 +289,12 @@ function startGroundFlash() { groundFlashActive = true; groundFlashStart = Date.
 function drawFullFlash(opacity) { ctx.save(); ctx.globalAlpha = opacity; ctx.fillStyle = 'rgba(255, 250, 210, 1)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
 
 function animate() {
-    center.x = W/2; // Обновляем центр при ресайзе
+    center.x = W/2; // Обновляем центр
 
     if (!transitionedToMorning) { ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H); }
     let now=Date.now(); let allInCenter = stars.every(s => s.state==="inCenter") && !mergeStarted;
     
-    // ЗВЕЗДЫ (Ночь)
+    // ЗВЕЗДЫ
     if (!transitionedToMorning) {
         for(let star of stars) {
             if(star.state==="hidden")continue; let t=0;
@@ -281,17 +308,17 @@ function animate() {
     if (allInCenter) startMerge();
     if (mergeStarted && !bigStarMode) { let t = Math.min((now-mergeStartTime)/mergeDuration,1); drawStarShape(center.x, center.y, Math.max(W,H)/26, 'gold', t, 28); if (t === 1) setTimeout(() => startBigStar(), 350); }
     if (flashActive) { let t = (now-flashStartTime)/flashDuration; if (t<1) { drawFullFlash(0.36*(1-t)); ctx.save(); ctx.globalAlpha = 0.61*(1-t); var grad = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, Math.max(W,H)*0.7); grad.addColorStop(0, 'rgba(255, 235, 100, 1)'); grad.addColorStop(1, 'rgba(255, 202, 84, 0)'); ctx.beginPath(); ctx.arc(center.x, center.y, Math.max(W,H)*0.76, 0, 2*Math.PI); ctx.fillStyle = grad; ctx.fill(); ctx.restore(); } else flashActive = false; }
+    
     if (bigStarMode && !afterFall) { 
         let t = Math.min((now-bigStarStart)/fallDuration, 1); let curve = ease(t); 
-        // Немного подняли конечную точку звезды
-        let y = lerp(center.y, H-50, curve); 
+        // ИСПРАВЛЕНИЕ: Падающая звезда теперь останавливается выше (0.85 от высоты)
+        let y = lerp(center.y, H * 0.85, curve); 
         let x = lerp(center.x, center.x + W*0.19, curve*0.82 + t*0.18); 
         let r = lerp(Math.max(W,H)/26, Math.max(W,H)/64, t); let rot = t*2*Math.PI*1.07; 
-        for(let i=0; i<20 && t > 0; i++){ let trailT = t - i*0.035; if(trailT<=0)continue; let trailCurve = ease(trailT); let tx = lerp(center.x, center.x+W*0.19, trailCurve*0.82 + trailT*0.18); let ty = lerp(center.y, H-50, trailCurve); drawStarShape(tx, ty, r*0.77, 'gold', 0.1*(1-i/19)*(1-trailT), 8, rot-i*0.115); } 
+        for(let i=0; i<20 && t > 0; i++){ let trailT = t - i*0.035; if(trailT<=0)continue; let trailCurve = ease(trailT); let tx = lerp(center.x, center.x+W*0.19, trailCurve*0.82 + trailT*0.18); let ty = lerp(center.y, H * 0.85, trailCurve); drawStarShape(tx, ty, r*0.77, 'gold', 0.1*(1-i/19)*(1-trailT), 8, rot-i*0.115); } 
         if (t < 1) drawStarShape(x, y, r, 'gold', lerp(1,0.56,t), 24, rot); if (t === 1 && !afterFall) { afterFall = true; setTimeout(()=>startGroundFlash(), 60); } 
     }
 
-    // УТРО
     if (groundFlashActive || transitionedToMorning) {
         let t = (now-groundFlashStart)/groundFlashDuration;
         if (transitionedToMorning) {
@@ -309,24 +336,12 @@ function animate() {
                     const tempCloud = new PhotoCloud(null, 0, 0); const cloudWidth = tempCloud.width; const cloudGap = cloudWidth * CLOUD_GAP_FACTOR; let startX = -600; 
                     for(let i=0; i<loadedImages.length; i++) { let cX = startX - (i * cloudGap); let cY; let offset = H * 0.12; if (i % 3 === 0) cY = H/2 - offset; else if (i % 3 === 1) cY = H/2 + offset; else cY = H/2; cY += (Math.random() * 20 - 10); activePhotoClouds.push(new PhotoCloud(loadedImages[i], cX, cY)); }
                 }
-
-                // Рисуем и обновляем облака
                 for (let i = 0; i < activePhotoClouds.length; i++) {
-                    let pc = activePhotoClouds[i];
-                    pc.update();
-                    pc.draw();
-
-                    // Если облако улетело
-                    if (pc.x > W + pc.width) {
-                        activePhotoClouds.splice(i, 1);
-                        i--;
-                    }
+                    let pc = activePhotoClouds[i]; pc.update(); pc.draw();
+                    if (pc.x > W + pc.width) { activePhotoClouds.splice(i, 1); i--; }
                 }
-
-                // ПРОВЕРКА НА КОНЕЦ: Если облака были запущены, но массив стал пуст
                 if (cloudsSpawned && activePhotoClouds.length === 0 && !isEnding) {
                     isEnding = true;
-                    // Показываем финальное поздравление
                     document.getElementById('endMessage').style.opacity = 1;
                 }
             }
@@ -336,16 +351,11 @@ function animate() {
         if (t>0.48 && !transitionedToMorning) { transitionedToMorning = true; generateSnowflakes(); initClouds(); }
     }
 
-    // ЭФФЕКТ ЗАТУХАНИЯ (FADE OUT)
     if (isEnding) {
-        fadeOpacity += 0.005; // Скорость затемнения
+        fadeOpacity += 0.005; 
         if (fadeOpacity > 1) fadeOpacity = 1;
-
-        // Рисуем черный прямоугольник поверх всего
         ctx.fillStyle = `rgba(0, 0, 0, ${fadeOpacity})`;
         ctx.fillRect(0, 0, W, H);
-
-        // Плавно убавляем громкость музыки
         const audio = document.getElementById('bgMusic');
         if (audio.volume > 0.003) {
             let newVol = audio.volume - 0.003; 
@@ -354,11 +364,11 @@ function animate() {
              audio.volume = 0;
         }
     }
-
     requestAnimationFrame(animate);
 }
 
 window.addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; canvas.width = W; canvas.height = H; });
+resize(); // Принудительный ресайз при загрузке
 </script>
 </body>
 </html>
