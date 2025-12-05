@@ -29,12 +29,14 @@
             z-index: 20; text-shadow: 0 0 20px #FFD700; width: 100%;
         }
 
-        /* ВИДЕО ПЛЕЕР */
         #finalVideo {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            object-fit: contain; 
-            display: none; 
-            z-index: 30; background: #000;
+            object-fit: contain; display: none; z-index: 30; background: #000;
+        }
+
+        #errorLog {
+            position: absolute; bottom: 0; left: 0; width: 100%; background: rgba(255,0,0,0.8);
+            color: white; padding: 10px; font-size: 12px; display: none; z-index: 100;
         }
     </style>
 </head>
@@ -42,11 +44,8 @@
 
 <audio id="bgMusic"></audio>
 
-<!-- ВАЖНО: Проверьте, чтобы файл в репозитории назывался точно так же: video.mp4 (маленькими буквами) -->
 <video id="finalVideo" controls playsinline preload="auto">
     <source src="video.mp4" type="video/mp4">
-    <!-- Запасной вариант, если видео не поддерживается -->
-    Ваш браузер не поддерживает видео.
 </video>
 
 <div id="startScreen">
@@ -55,56 +54,214 @@
     <button onclick="startCelebration()">Открыть поздравление</button>
 </div>
 
-<div id="endMessage">
-    ❤️ С Днем Рождения! ❤️
-</div>
+<div id="endMessage">❤️ С Днем Рождения! ❤️</div>
+<div id="errorLog"></div>
 
 <canvas id="mainCanvas"></canvas>
 
 <script>
-// === МУЗЫКА ===
-const musicPlaylist = [
-    "music1.mp3",
-    "music2.mp3",
-    "music3.mp3"
-];
+window.onerror = function(msg, url, line) {
+    const log = document.getElementById('errorLog');
+    log.style.display = 'block';
+    log.innerHTML += `Ошибка: ${msg} (строка ${line})<br>`;
+    return false;
+};
 
-// === ФОТО ===
-const photoURLs = [
-    "мем1.png", "мем2.png", "мем4.png", "мем5.png", "мем6.png", "мем7.png",
-    "мем1Соня.png", "мем2Соня.png", "мем3Соня.png", "мем4Соня.png", "мем5Соня.png",
-    "мем6Соня.png", "мем7Соня.png", "мем8Соня.png", "мем9Соня.png", "мем10Соня.png", "мем13Соня.png"
+// =========================================================
+// === 1. МУЗЫКА ===
+const musicPlaylist = ["music1.mp3", "music2.mp3", "music3.mp3"];
+
+// === 2. ФОТО И ПОДПИСИ ===
+const cloudContent = [
+    { src: "мем1.jpg", text: "от Азиза" },
+    { src: "мем2.jpg", text: "от Азиза" },
+    { src: "мем4.jpg", text: "от Азиза" },
+    { src: "мем5.jpg", text: "от Азиза" },
+    { src: "мем6.jpg", text: "от Азиза" },
+    { src: "мем7.jpg", text: "от Азиза" },
+    { src: "мем1Соня.jpg", text: "от Сонюшки" },
+    { src: "мем2Соня.jpg", text: "от Сонюшки" },
+    { src: "мем3Соня.jpg", text: "от Сонюшки" },
+    { src: "мем4Соня.jpg", text: "от Сонюшки" },
+    { src: "мем5Соня.jpg", text: "от Сонюшки" },
+    { src: "мем6Соня.jpg", text: "от Сонюшки" },
+    { src: "мем7Соня.jpg", text: "от Сонюшки" },
+    { src: "мем8Соня.jpg", text: "от Сонюшки" },
+    { src: "мем9Соня.jpg", text: "от Сонюшки" },
+    { src: "мем10Соня.jpg", text: "от Сонюшки" },
+    { src: "мем13Соня.jpg", text: "от Сонюшки" }
 ];
 
 const CLOUD_SIZE_FACTOR = 0.55; 
 const CLOUD_SPEED = 0.9;        
-const CLOUD_GAP_FACTOR = 1.1;   
+const GAP_BETWEEN_CLOUDS = 50; // Точный зазор в пикселях
 
+// --- ГРАФИКА ---
+let W, H;
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+
+function resize() { W = window.innerWidth; H = window.innerHeight; canvas.width = W; canvas.height = H; }
+window.addEventListener('resize', resize);
+resize();
+
+// === КЛАСС ОБЛАКА ===
+class PhotoCloud {
+    constructor(data, startX, startY) {
+        this.img = data.img;
+        this.text = data.text;
+        this.x = startX;
+        this.y = startY;
+        this.speed = CLOUD_SPEED;
+
+        // 1. Размеры фото
+        const baseSize = Math.min(W, H) * CLOUD_SIZE_FACTOR; 
+        let imgW = baseSize;
+        let imgH = baseSize * 0.7;
+        
+        if (this.img && this.img.complete && this.img.naturalWidth > 0) {
+            const ratio = this.img.naturalWidth / this.img.naturalHeight;
+            const maxDim = baseSize * 1.2;
+            if (ratio > 1) { imgW = Math.min(maxDim, baseSize * 1.5); imgH = imgW / ratio; } 
+            else { imgH = Math.min(maxDim, baseSize * 1.2); imgW = imgH * ratio; }
+        }
+        this.photoW = imgW;
+        this.photoH = imgH;
+
+        // 2. Текст
+        ctx.font = `bold ${Math.max(16, Math.floor(imgW * 0.08))}px Arial`;
+        const textMetrics = ctx.measureText(this.text);
+        const textWidth = textMetrics.width;
+        const contentWidth = Math.max(imgW, textWidth);
+
+        // 3. Отступы
+        this.paddingX = baseSize * 0.15; 
+        this.paddingY = baseSize * 0.15;
+        this.textHeight = baseSize * 0.1;
+
+        // Размеры рамки
+        this.totalW = contentWidth + this.paddingX * 2;
+        this.totalH = imgH + this.textHeight + this.paddingY * 2;
+
+        // 4. Генерация пузырей
+        this.blobs = [];
+        this.blobs.push({dx: 0, dy: 0, r: Math.max(this.totalW, this.totalH) * 0.5}); // Центр
+        
+        const hw = this.totalW / 2;
+        const hh = this.totalH / 2;
+        
+        this.blobs.push({dx: -hw, dy: -hh*0.5, r: this.totalH*0.4});
+        this.blobs.push({dx: hw, dy: -hh*0.5, r: this.totalH*0.4});
+        this.blobs.push({dx: -hw, dy: hh*0.5, r: this.totalH*0.4});
+        this.blobs.push({dx: hw, dy: hh*0.5, r: this.totalH*0.4});
+        this.blobs.push({dx: 0, dy: -hh*0.8, r: this.totalW*0.3}); 
+        this.blobs.push({dx: 0, dy: hh*0.8, r: this.totalW*0.3});  
+
+        // 5. РАСЧЕТ РЕАЛЬНОЙ ШИРИНЫ (С учетом выпирающих пузырей)
+        let minX = 0, maxX = 0;
+        this.blobs.forEach(b => {
+            if (b.dx - b.r < minX) minX = b.dx - b.r;
+            if (b.dx + b.r > maxX) maxX = b.dx + b.r;
+        });
+        // Это реальная ширина от края до края пузырей
+        this.realWidth = maxX - minX;
+        // Расстояние от центра до правого края (для стыковки)
+        this.distToRight = maxX;
+        // Расстояние от центра до левого края
+        this.distToLeft = Math.abs(minX);
+    }
+
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+
+        ctx.beginPath();
+        const r = 40; 
+        const hw = this.totalW / 2;
+        const hh = this.totalH / 2;
+        ctx.roundRect(-hw, -hh, this.totalW, this.totalH, r);
+        
+        this.blobs.forEach(b => {
+            ctx.moveTo(b.dx + b.r, b.dy);
+            ctx.arc(b.dx, b.dy, b.r, 0, Math.PI * 2);
+        });
+
+        ctx.shadowColor = 'rgba(255, 255, 255, 0.9)'; 
+        ctx.shadowBlur = 30; 
+        ctx.fillStyle = '#FFFFFF'; 
+        ctx.fill();
+        ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
+
+        if (this.text) {
+            ctx.fillStyle = "#333"; 
+            const fontSize = Math.max(16, Math.floor(this.photoW * 0.08));
+            ctx.font = `bold ${fontSize}px Arial`;
+            ctx.textAlign = "center"; 
+            ctx.textBaseline = "bottom";
+            ctx.fillText(this.text, 0, -this.photoH / 2 - 10);
+        }
+
+        if (this.img && this.img.complete && this.img.naturalWidth > 0) {
+            ctx.drawImage(this.img, -this.photoW/2, -this.photoH/2 + (this.textHeight/2), this.photoW, this.photoH);
+            ctx.strokeStyle = "rgba(200,200,200,0.5)"; ctx.lineWidth = 1;
+            ctx.strokeRect(-this.photoW/2, -this.photoH/2 + (this.textHeight/2), this.photoW, this.photoH);
+        } else {
+            ctx.fillStyle = "#eee"; 
+            ctx.fillRect(-this.photoW/2, -this.photoH/2, this.photoW, this.photoH);
+        }
+        ctx.restore();
+    }
+    update() { this.x += this.speed; }
+}
+
+let loadedContent = [];
+cloudContent.forEach(item => {
+    const img = new Image();
+    img.src = item.src;
+    loadedContent.push({ img: img, text: item.text });
+});
+
+let stars = [];
+let snowflakes = [];
+let plane = { x: -400, y: H * 0.25, speed: 5, wobble: 0, finished: false };
+let clouds = []; 
+let activePhotoClouds = []; 
+let cloudsSpawned = false;
+
+let mergeStarted = false, mergeStartTime = 0;
+let flashActive = false, flashStartTime = 0;
+let bigStarMode = false, bigStarStart = 0;
+let afterFall = false;
+let groundFlashActive = false, groundFlashStart = 0;
+let transitionedToMorning = false;
 let isEnding = false;
 let fadeOpacity = 0;
-let videoTriggered = false; 
-let currentSongIndex = 0; 
+let videoTriggered = false;
+let currentSongIndex = 0;
 
-// Проверяем видео на ошибки при загрузке
-const vid = document.getElementById('finalVideo');
-vid.onerror = function() {
-    console.log("Ошибка загрузки видео");
-};
+const startMinY = () => H * 0.60;
+const startMaxY = () => H * 0.80; 
+const minX = () => 0.09 * W; const maxX = () => 0.91 * W;
+const center = { x: W/2, y: H*0.19 };
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function ease(t) { return t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
 
 function startCelebration() {
     openFullscreen();
     document.getElementById('startScreen').style.display = 'none';
     playNextSong();
-    
     resize();
     stars = createStars();
+    initClouds();
+    generateSnowflakes();
     startAppearSequence();
     animate();
 }
 
 function openFullscreen() {
     const elem = document.documentElement;
-    if (elem.requestFullscreen) elem.requestFullscreen().catch(err => console.log(err));
+    if (elem.requestFullscreen) elem.requestFullscreen().catch(e=>{});
     else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
 }
 
@@ -113,8 +270,7 @@ function playNextSong() {
     const audio = document.getElementById('bgMusic');
     audio.src = musicPlaylist[currentSongIndex];
     audio.volume = 0.5;
-    audio.play().catch(e => console.log("Ошибка звука:", e));
-
+    audio.play().catch(e => console.log(e));
     audio.onended = function() {
         if (isEnding) return; 
         currentSongIndex++; 
@@ -123,111 +279,47 @@ function playNextSong() {
     };
 }
 
-// --- ЗАПУСК ВИДЕО (С ПРОВЕРКОЙ ОШИБОК) ---
 function launchFinalVideo() {
     const vid = document.getElementById('finalVideo');
-    const msg = document.getElementById('endMessage');
-    const canvas = document.getElementById('mainCanvas');
+    document.getElementById('endMessage').style.display = 'none';
+    document.getElementById('mainCanvas').style.display = 'none';
     const audio = document.getElementById('bgMusic');
-
-    // 1. Глушим музыку
-    audio.pause(); 
-
-    // 2. Убираем всё лишнее
-    canvas.style.display = 'none';
-    msg.style.display = 'none';
-
-    // 3. Показываем плеер
+    audio.pause();
     vid.style.display = 'block';
-
-    // 4. Пробуем запустить
-    const playPromise = vid.play();
-
-    if (playPromise !== undefined) {
-        playPromise.then(_ => {
-            // Видео запустилось успешно!
-            console.log("Видео играет");
-        })
-        .catch(error => {
-            // Если ошибка - выводим её на экран, чтобы понять причину
-            alert("Не удалось запустить видео! \nПричина: " + error + "\n\nПроверьте: \n1. Называется ли файл video.mp4 (маленькими буквами)?\n2. Лежит ли он в той же папке?");
-            console.error("Ошибка видео:", error);
-        });
-    }
+    vid.play().catch(e => {
+        document.getElementById('errorLog').style.display = 'block';
+        document.getElementById('errorLog').innerHTML += "Видео не запускается. Проверьте имя файла video.mp4";
+    });
 }
 
-// --- ГРАФИКА ---
-const totalStars = 13;
-const snowflakeCount = 65;
-const canvas = document.getElementById('mainCanvas');
-const ctx = canvas.getContext('2d');
-let W, H;
-
-function resize() { W = window.innerWidth; H = window.innerHeight; canvas.width = W; canvas.height = H; }
-window.addEventListener('resize', resize);
-resize();
-
-let loadedImages = [];
-photoURLs.forEach(url => {
-    const img = new Image();
-    img.src = url;
-    loadedImages.push(img);
-});
-
-let stars = [];
-const startMinY = () => H * 0.60;
-const startMaxY = () => H * 0.80; 
-const minX = () => 0.09 * W; 
-const maxX = () => 0.91 * W;
-let center = { x: W/2, y: H*0.19 };
-
 function createStars() {
+    const totalStars = 13;
     let sector = (maxX()-minX())/totalStars; let arr = [];
     for (let i=0; i<totalStars; i++)
-        arr.push({ sx: minX()+i*sector+Math.random()*sector*0.7, sy: startMinY()+Math.random()*(startMaxY()-startMinY()), size: 13+Math.random()*6, state: 'hidden', appearStart: 0, flyStart: 0, mergeStart: 0 });
+        arr.push({ 
+            sx: minX()+i*sector+Math.random()*sector*0.7, 
+            sy: startMinY()+Math.random()*(startMaxY()-startMinY()), 
+            size: 13+Math.random()*6, 
+            state: 'hidden', appearStart: 0, flyStart: 0, mergeStart: 0,
+            angle: 0, 
+            spinSpeed: (Math.random() > 0.5 ? 1 : -1) * (0.05 + Math.random() * 0.05) 
+        });
     return arr;
 }
 
-let snowflakes = [];
-function generateSnowflakes() { snowflakes=[]; for(let i=0;i<snowflakeCount;i++) snowflakes.push({x: Math.random()*W, y: Math.random()*H, r: 1.35+Math.random()*1.7, a: 0.42+Math.random()*0.42}); }
+function generateSnowflakes() { snowflakes=[]; for(let i=0;i<65;i++) snowflakes.push({x: Math.random()*W, y: Math.random()*H, r: 1.35+Math.random()*1.7, a: 0.42+Math.random()*0.42}); }
+function initClouds() { clouds = []; for(let i=0; i<6; i++) clouds.push({x: Math.random()*W, y: Math.random()*(H*0.5), size: 0.4+Math.random()*0.4, speed: 0.2+Math.random()*0.3}); }
 
-let plane = { x: -400, y: H * 0.25, speed: 5, wobble: 0, finished: false };
-let clouds = [];
-function initClouds() { for(let i=0; i<6; i++) clouds.push({x: Math.random()*W, y: Math.random()*(H*0.5), size: 0.4+Math.random()*0.4, speed: 0.2+Math.random()*0.3}); }
+function startAppearSequence() { for (let i=0; i<stars.length; i++) setTimeout(()=> { stars[i].state="appearing"; stars[i].appearStart=Date.now(); }, 480*i); setTimeout(()=>moveAllToCenter(), 480*stars.length+400); }
+function moveAllToCenter() { for (let star of stars) { star.state="flying"; star.flyStart=Date.now(); } }
+function startMerge() { if (!mergeStarted) { mergeStarted=true; mergeStartTime=Date.now(); flashActive=true; flashStartTime=mergeStartTime; for(let s of stars) {s.state="merging"; s.mergeStart=mergeStartTime;} } }
+function startBigStar() { if (!bigStarMode) { bigStarMode = true; bigStarStart = Date.now(); } }
+function startGroundFlash() { groundFlashActive = true; groundFlashStart = Date.now(); }
 
-class PhotoCloud {
-    constructor(image, startX, startY) {
-        this.img = image; this.x = startX; this.y = startY;
-        const baseSize = Math.min(W, H) * CLOUD_SIZE_FACTOR; 
-        this.width = baseSize * 1.6; this.height = baseSize * 1.1; this.speed = CLOUD_SPEED;
-        this.blobs = [];
-        this.blobs.push({dx: 0, dy: 0, r: this.width * 0.38});
-        this.blobs.push({dx: -this.width*0.3, dy: this.height*0.1, r: this.width * 0.28});
-        this.blobs.push({dx: this.width*0.3, dy: this.height*0.1, r: this.width * 0.28});
-        this.blobs.push({dx: -this.width*0.15, dy: -this.height*0.2, r: this.width * 0.32});
-        this.blobs.push({dx: this.width*0.15, dy: -this.height*0.2, r: this.width * 0.32});
-    }
-    draw() {
-        ctx.save(); ctx.translate(this.x, this.y); ctx.beginPath();
-        this.blobs.forEach((b) => { ctx.moveTo(b.dx + b.r, b.dy); ctx.arc(b.dx, b.dy, b.r, 0, Math.PI * 2); });
-        ctx.shadowColor = 'rgba(255, 255, 255, 0.9)'; ctx.shadowBlur = 40; ctx.fillStyle = '#FFFFFF'; ctx.fill(); 
-        ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.clip(); 
-        if (this.img.complete && this.img.naturalWidth !== 0) {
-            const imgRatio = this.img.width / this.img.height;
-            let drawW = this.width * 1.5; let drawH = drawW / imgRatio;
-            if (drawH < this.height * 1.5) { drawH = this.height * 1.5; drawW = drawH * imgRatio; }
-            ctx.drawImage(this.img, -drawW/2, -drawH/2, drawW, drawH);
-        } else { ctx.fillStyle = "#f0f0f0"; ctx.fill(); }
-        ctx.restore();
-    }
-    update() { this.x += this.speed; }
-}
-
-let activePhotoClouds = []; let cloudsSpawned = false;
-function lerp(a, b, t) { return a+(b-a)*t; }
-function ease(t) { return t<.5 ? 2*t*t : -1+(4-2*t)*t; }
 function drawStarShape(x, y, r, color, opacity=1, shadow=12, rotation=0) {
-    ctx.save(); ctx.globalAlpha = opacity; ctx.translate(x, y); ctx.rotate(rotation); ctx.beginPath();
+    ctx.save(); ctx.globalAlpha = opacity; ctx.translate(x, y); 
+    ctx.rotate(rotation); 
+    ctx.beginPath();
     for (let i=0; i<5; i++) { ctx.lineTo(r*Math.cos(-Math.PI/2+i*2*Math.PI/5), r*Math.sin(-Math.PI/2+i*2*Math.PI/5)); ctx.lineTo(r/2*Math.cos(-Math.PI/2+(i*2+1)*Math.PI/5), r/2*Math.sin(-Math.PI/2+(i*2+1)*Math.PI/5)); }
     ctx.closePath(); ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = shadow; ctx.fill(); ctx.restore();
 }
@@ -238,8 +330,6 @@ function drawWinterBackground() {
     let sunGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, sunR*1.15); sunGrad.addColorStop(0, 'rgba(255,245,220,1)'); sunGrad.addColorStop(1, 'rgba(255,236,200,0)');
     ctx.save(); ctx.globalAlpha = 0.96; ctx.beginPath(); ctx.arc(sunX, sunY, sunR*1.1, 0, 2*Math.PI); ctx.fillStyle = sunGrad; ctx.shadowColor = 'rgba(255,233,180,0.35)'; ctx.shadowBlur = 38; ctx.fill(); ctx.restore();
 }
-function drawSnow() { for(let s of snowflakes) { s.y += 0.5; if(s.y > H) s.y = -10; ctx.save(); ctx.globalAlpha = s.a; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,2*Math.PI); ctx.fillStyle = "#fff"; ctx.shadowColor = "#e0e6ff"; ctx.shadowBlur = 7+s.r*2; ctx.fill(); ctx.restore(); } }
-function drawCloud(c) { ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; ctx.beginPath(); ctx.arc(c.x, c.y, 30*c.size, 0, Math.PI*2); ctx.arc(c.x+25*c.size, c.y-15*c.size, 35*c.size, 0, Math.PI*2); ctx.arc(c.x+50*c.size, c.y, 30*c.size, 0, Math.PI*2); ctx.fill(); }
 function drawPlaneVisuals(x, y) {
     ctx.save(); ctx.translate(x, y); const scale = Math.min(W, H) / 1000; ctx.scale(scale * 1.5, scale * 1.5); 
     ctx.fillStyle = 'rgba(0,0,0,0.1)'; ctx.beginPath(); ctx.ellipse(0, 20, 60, 15, 0, 0, Math.PI*2); ctx.fill();
@@ -247,7 +337,7 @@ function drawPlaneVisuals(x, y) {
     ctx.strokeStyle = '#999'; ctx.lineWidth = 1; ctx.stroke();
     ctx.fillStyle = '#CC0000'; ctx.beginPath(); ctx.moveTo(-40, -5); ctx.lineTo(-60, -25); ctx.lineTo(-55, -5); ctx.fill();
     ctx.fillStyle = '#DDDDDD'; ctx.beginPath(); ctx.moveTo(10, 5); ctx.lineTo(-10, 25); ctx.lineTo(20, 25); ctx.fill();
-    ctx.save(); ctx.translate(60, 0); ctx.rotate(Date.now() / 50); ctx.fillStyle = '#333'; ctx.fillRect(-2, -25, 4, 50); ctx.restore();
+    ctx.save(); ctx.translate(60, 0); ctx.rotate(Date.now() / 30); ctx.fillStyle = '#333'; ctx.fillRect(-3, -35, 6, 70); ctx.restore();
     ctx.fillStyle = '#87CEEB'; ctx.beginPath(); ctx.ellipse(15, -8, 10, 6, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
 }
 function drawBanner(px, py) {
@@ -264,53 +354,114 @@ function drawBanner(px, py) {
     ctx.fillStyle = '#FF4500'; ctx.textAlign = "center"; ctx.textBaseline = "middle"; const centerWave = Math.sin((bannerWidth/2 / 20) + time) * (5 * finalScale); ctx.fillText(text, bannerStartX - bannerWidth/2, py + centerWave); ctx.restore();
 }
 
-// --- АНИМАЦИЯ ---
-const appearInterval = 480; const appearDuration = 400; const moveDuration = 1000; const mergeDuration = 700; const flashDuration = 750; const fallDuration = 3500; const groundFlashDuration = 1700;
-function startAppearSequence() { for (let i=0; i<stars.length; i++) setTimeout(()=> { stars[i].state="appearing"; stars[i].appearStart=Date.now(); }, appearInterval*i); setTimeout(()=>moveAllToCenter(), appearInterval*stars.length+appearDuration); }
-function moveAllToCenter() { for (let star of stars) { star.state="flying"; star.flyStart=Date.now(); } }
-let mergeStarted = false, mergeStartTime = 0; function startMerge() { if (!mergeStarted) { mergeStarted=true; mergeStartTime=Date.now(); flashActive=true; flashStartTime=mergeStartTime; for(let s of stars) {s.state="merging"; s.mergeStart=mergeStartTime;} } }
-let bigStarMode = false, bigStarStart = 0; function startBigStar() { if (!bigStarMode) { bigStarMode = true; bigStarStart = Date.now(); } }
-let groundFlashActive = false, groundFlashStart = 0; function startGroundFlash() { groundFlashActive = true; groundFlashStart = Date.now(); }
-function drawFullFlash(opacity) { ctx.save(); ctx.globalAlpha = opacity; ctx.fillStyle = 'rgba(255, 250, 210, 1)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
-let flashActive = false, flashStartTime = 0; let afterFall = false; let transitionedToMorning = false;
-
+// === АНИМАЦИЯ ===
 function animate() {
     center.x = W/2; 
-    if (!transitionedToMorning) { ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H); }
-    let now=Date.now(); let allInCenter = stars.every(s => s.state==="inCenter") && !mergeStarted;
-    
+    let now = Date.now(); 
+
+    if (!transitionedToMorning) { 
+        ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H); 
+    } else {
+        drawWinterBackground(); 
+    }
+
     if (!transitionedToMorning) {
+        let allInCenter = stars.every(s => s.state==="inCenter") && !mergeStarted;
+        
         for(let star of stars) {
-            if(star.state==="hidden")continue; let t=0;
-            if(star.state==="appearing") { t = Math.min((now-star.appearStart)/appearDuration, 1); if (t===1) star.state="visible"; }
-            else if(star.state==="visible") t=1; else if(star.state==="flying") { t=1; let ft = Math.min((now-star.flyStart)/moveDuration, 1); var x=lerp(star.sx,center.x,ft), y=lerp(star.sy,center.y,ft); drawStarShape(x,y,star.size,'gold',1); if(ft===1)star.state="inCenter"; continue; }
-            else if(star.state==="inCenter") { drawStarShape(center.x,center.y,star.size,'gold',1); continue;} else if(star.state==="merging") { let mt = Math.min((now-star.mergeStart)/mergeDuration,1); drawStarShape(center.x,center.y,star.size,'gold',1-mt); continue;}
-            drawStarShape(star.sx, star.sy, star.size, 'gold', t);
+            if(star.state==="hidden")continue; 
+            let t=0;
+            if(star.state === "flying") { star.angle += 0.15; }
+            if(star.state==="appearing") { t = Math.min((now-star.appearStart)/400, 1); if (t===1) star.state="visible"; }
+            else if(star.state==="visible") t=1; 
+            else if(star.state==="flying") { 
+                t = Math.min((now-star.flyStart)/1000, 1); 
+                var x=lerp(star.sx,center.x,t), y=lerp(star.sy,center.y,t); 
+                drawStarShape(x,y,star.size,'gold',1, 12, star.angle); 
+                if(t===1)star.state="inCenter"; continue; 
+            }
+            else if(star.state==="inCenter") { drawStarShape(center.x,center.y,star.size,'gold',1, 12, 0); continue;} 
+            else if(star.state==="merging") { let mt = Math.min((now-star.mergeStart)/700,1); drawStarShape(center.x,center.y,star.size,'gold',1-mt, 12, 0); continue;}
+            let drawAngle = (star.state === "flying") ? star.angle : 0;
+            drawStarShape(star.sx, star.sy, star.size, 'gold', t, 12, drawAngle);
+        }
+
+        if (allInCenter) startMerge();
+        if (mergeStarted && !bigStarMode) { let t = Math.min((now-mergeStartTime)/700,1); drawStarShape(center.x, center.y, Math.max(W,H)/26, 'gold', t); if (t === 1) setTimeout(() => startBigStar(), 350); }
+        if (flashActive) { let t = (now-flashStartTime)/750; if (t<1) { ctx.save(); ctx.globalAlpha = 0.36*(1-t); ctx.fillStyle = 'rgba(255, 250, 210, 1)'; ctx.fillRect(0,0,W,H); ctx.restore(); ctx.save(); ctx.globalAlpha = 0.61*(1-t); var grad = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, Math.max(W,H)*0.7); grad.addColorStop(0, 'rgba(255, 235, 100, 1)'); grad.addColorStop(1, 'rgba(255, 202, 84, 0)'); ctx.beginPath(); ctx.arc(center.x, center.y, Math.max(W,H)*0.76, 0, 2*Math.PI); ctx.fillStyle = grad; ctx.fill(); ctx.restore(); } else flashActive = false; }
+        
+        if (bigStarMode && !afterFall) { 
+            let t = Math.min((now-bigStarStart)/3500, 1); let curve = ease(t); 
+            let y = lerp(center.y, H * 0.85, curve); 
+            let x = lerp(center.x, center.x + W*0.19, curve*0.82 + t*0.18); 
+            let r = lerp(Math.max(W,H)/26, Math.max(W,H)/64, t); let rot = t*2*Math.PI*1.07; 
+            for(let i=0; i<20 && t > 0; i++){ let trailT = t - i*0.035; if(trailT<=0)continue; let trailCurve = ease(trailT); let tx = lerp(center.x, center.x+W*0.19, trailCurve*0.82 + trailT*0.18); let ty = lerp(center.y, H * 0.85, trailCurve); 
+                drawStarShape(tx, ty, r*0.77, 'gold', 0.1*(1-i/19)*(1-trailT), 12, rot-i*0.115);
+            } 
+            if (t < 1) drawStarShape(x, y, r, 'gold', lerp(1,0.56,t), 12, rot); if (t === 1 && !afterFall) { afterFall = true; setTimeout(()=>startGroundFlash(), 60); } 
         }
     }
-    if (allInCenter) startMerge();
-    if (mergeStarted && !bigStarMode) { let t = Math.min((now-mergeStartTime)/mergeDuration,1); drawStarShape(center.x, center.y, Math.max(W,H)/26, 'gold', t, 28); if (t === 1) setTimeout(() => startBigStar(), 350); }
-    if (flashActive) { let t = (now-flashStartTime)/flashDuration; if (t<1) { drawFullFlash(0.36*(1-t)); ctx.save(); ctx.globalAlpha = 0.61*(1-t); var grad = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, Math.max(W,H)*0.7); grad.addColorStop(0, 'rgba(255, 235, 100, 1)'); grad.addColorStop(1, 'rgba(255, 202, 84, 0)'); ctx.beginPath(); ctx.arc(center.x, center.y, Math.max(W,H)*0.76, 0, 2*Math.PI); ctx.fillStyle = grad; ctx.fill(); ctx.restore(); } else flashActive = false; }
-    if (bigStarMode && !afterFall) { let t = Math.min((now-bigStarStart)/fallDuration, 1); let curve = ease(t); let y = lerp(center.y, H * 0.85, curve); let x = lerp(center.x, center.x + W*0.19, curve*0.82 + t*0.18); let r = lerp(Math.max(W,H)/26, Math.max(W,H)/64, t); let rot = t*2*Math.PI*1.07; for(let i=0; i<20 && t > 0; i++){ let trailT = t - i*0.035; if(trailT<=0)continue; let trailCurve = ease(trailT); let tx = lerp(center.x, center.x+W*0.19, trailCurve*0.82 + trailT*0.18); let ty = lerp(center.y, H * 0.85, trailCurve); drawStarShape(tx, ty, r*0.77, 'gold', 0.1*(1-i/19)*(1-trailT), 8, rot-i*0.115); } if (t < 1) drawStarShape(x, y, r, 'gold', lerp(1,0.56,t), 24, rot); if (t === 1 && !afterFall) { afterFall = true; setTimeout(()=>startGroundFlash(), 60); } }
+
     if (groundFlashActive || transitionedToMorning) {
-        let t = (now-groundFlashStart)/groundFlashDuration;
+        let t = (now-groundFlashStart)/1700;
+        
         if (transitionedToMorning) {
-            drawWinterBackground(); clouds.forEach(cloud => { cloud.x -= cloud.speed; if (cloud.x < -100) { cloud.x = W + 100; cloud.y = Math.random() * (H / 2); } drawCloud(cloud); });
-            if (!plane.finished) { plane.x += plane.speed; plane.wobble = Math.sin(Date.now() / 500) * 10; drawPlaneVisuals(plane.x, plane.y + plane.wobble); drawBanner(plane.x, plane.y + plane.wobble); if (plane.x > W + 800) plane.finished = true; } 
-            else {
+            clouds.forEach(c => { c.x -= c.speed; if (c.x < -100) { c.x = W + 100; c.y = Math.random() * (H / 2); } ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; ctx.beginPath(); ctx.arc(c.x, c.y, 30*c.size, 0, Math.PI*2); ctx.arc(c.x+25*c.size, c.y-15*c.size, 35*c.size, 0, Math.PI*2); ctx.arc(c.x+50*c.size, c.y, 30*c.size, 0, Math.PI*2); ctx.fill(); });
+            
+            if (!plane.finished) { 
+                plane.x += plane.speed; plane.wobble = Math.sin(Date.now() / 500) * 10; 
+                drawPlaneVisuals(plane.x, plane.y + plane.wobble); 
+                drawBanner(plane.x, plane.y + plane.wobble); 
+                if (plane.x > W + 2000) plane.finished = true; 
+            }
+
+            if (plane.x > W + 100) {
                 if (!cloudsSpawned) {
-                    cloudsSpawned = true; const tempCloud = new PhotoCloud(null, 0, 0); const cloudWidth = tempCloud.width; const cloudGap = cloudWidth * CLOUD_GAP_FACTOR; let startX = -600; 
-                    for(let i=0; i<loadedImages.length; i++) { let cX = startX - (i * cloudGap); let cY; let offset = H * 0.12; if (i % 3 === 0) cY = H/2 - offset; else if (i % 3 === 1) cY = H/2 + offset; else cY = H/2; cY += (Math.random() * 20 - 10); activePhotoClouds.push(new PhotoCloud(loadedImages[i], cX, cY)); }
+                    cloudsSpawned = true; 
+                    
+                    let firstCloud = new PhotoCloud(loadedContent[0], 0, 0);
+                    // СТАРТ: Правый край облака (distToRight) должен быть за левым краем экрана
+                    // То есть: CenterX + distToRight = -10 (немного за экраном)
+                    // CenterX = -10 - distToRight
+                    let currentX = - (firstCloud.distToRight + 10); 
+
+                    for(let i=0; i<loadedContent.length; i++) { 
+                        let tempCloud = new PhotoCloud(loadedContent[i], 0, 0);
+                        
+                        // Используем REAL width (distToRight + distToLeft)
+                        let myHalfW = tempCloud.distToRight; // Расстояние от центра до правого края
+                        let myLeftPart = tempCloud.distToLeft; // Расстояние от центра до левого края
+                        
+                        // Сдвигаем на левую часть текущего
+                        currentX -= myHalfW; 
+                        
+                        let cX = currentX;
+                        let cY; 
+                        let offset = H * 0.12; 
+                        if (i % 3 === 0) cY = H/2 - offset; else if (i % 3 === 1) cY = H/2 + offset; else cY = H/2; 
+                        cY += (Math.random() * 20 - 10); 
+                        
+                        activePhotoClouds.push(new PhotoCloud(loadedContent[i], cX, cY));
+                        
+                        // Готовим позицию для следующего: сдвигаем на левую часть текущего + зазор
+                        currentX -= (myLeftPart + GAP_BETWEEN_CLOUDS);
+                    }
                 }
-                for (let i = 0; i < activePhotoClouds.length; i++) { let pc = activePhotoClouds[i]; pc.update(); pc.draw(); if (pc.x > W + pc.width) { activePhotoClouds.splice(i, 1); i--; } }
+                for (let i = 0; i < activePhotoClouds.length; i++) {
+                    let pc = activePhotoClouds[i]; pc.update(); pc.draw();
+                    if (pc.x > W + pc.width) { activePhotoClouds.splice(i, 1); i--; }
+                }
                 if (cloudsSpawned && activePhotoClouds.length === 0 && !isEnding) {
                     isEnding = true;
                     document.getElementById('endMessage').style.opacity = 1;
                 }
             }
-            drawSnow();
+            for(let s of snowflakes) { s.y += 0.5; if(s.y > H) s.y = -10; ctx.save(); ctx.globalAlpha = s.a; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,2*Math.PI); ctx.fillStyle = "#fff"; ctx.shadowColor = "#e0e6ff"; ctx.shadowBlur = 7+s.r*2; ctx.fill(); ctx.restore(); }
         }
-        if(t<=1 && groundFlashActive){ let flashOp = 1.09*(1-Math.pow(t,2.3)); if (flashOp > 0) drawFullFlash(flashOp); }
+
+        if(t<=1 && groundFlashActive){ 
+            ctx.save(); ctx.globalAlpha = 1.09*(1-Math.pow(t,2.3)); ctx.fillStyle = 'rgba(255, 250, 210, 1)'; ctx.fillRect(0,0,W,H); ctx.restore(); 
+        }
         if (t>0.48 && !transitionedToMorning) { transitionedToMorning = true; generateSnowflakes(); initClouds(); }
     }
 
@@ -319,20 +470,13 @@ function animate() {
         if (fadeOpacity > 1) fadeOpacity = 1;
         ctx.fillStyle = `rgba(0, 0, 0, ${fadeOpacity})`;
         ctx.fillRect(0, 0, W, H);
-        
         const audio = document.getElementById('bgMusic');
         if (audio.volume > 0.003) { let newVol = audio.volume - 0.003; audio.volume = newVol; } else { audio.volume = 0; }
-
-        if (fadeOpacity >= 1 && !videoTriggered) {
-            videoTriggered = true;
-            setTimeout(launchFinalVideo, 3000);
-        }
+        if (fadeOpacity >= 1 && !videoTriggered) { videoTriggered = true; setTimeout(launchFinalVideo, 3000); }
     }
+
     requestAnimationFrame(animate);
 }
-window.addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; canvas.width = W; canvas.height = H; });
-resize(); 
 </script>
 </body>
 </html>
-
