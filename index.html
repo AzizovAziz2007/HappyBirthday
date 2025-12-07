@@ -21,6 +21,13 @@
             box-shadow: 0 0 20px rgba(255, 165, 0, 0.5); transition: transform 0.2s;
         }
         button:hover { transform: scale(1.1); }
+        /* Стиль для отключенной кнопки (во время загрузки) */
+        button:disabled {
+            background: #555;
+            cursor: wait;
+            box-shadow: none;
+            transform: none;
+        }
 
         #endMessage {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -42,7 +49,6 @@
 </head>
 <body>
 
-<!-- Preload помогает загрузить музыку заранее -->
 <audio id="bgMusic" preload="auto"></audio>
 
 <video id="finalVideo" controls playsinline preload="auto">
@@ -52,7 +58,7 @@
 <div id="startScreen">
     <h1>Для тебя есть сюрприз...</h1>
     <br>
-    <button onclick="startCelebration()">Открыть поздравление</button>
+    <button id="startBtn" onclick="startCelebration()">Открыть поздравление</button>
 </div>
 
 <div id="endMessage">❤️ С Днем Рождения! ❤️</div>
@@ -72,8 +78,7 @@ window.onerror = function(msg, url, line) {
 // === 1. МУЗЫКА ===
 const musicPlaylist = ["music1.mp3", "music2.mp3", "music3.mp3"];
 
-// =========================================================
-// === 2. ФОТО И ПОДПИСИ (НОВЫЙ СПИСОК) ===
+// === 2. ФОТО И ПОДПИСИ ===
 const cloudContent = [
     { src: "мем1.jpg", text: "от Азизика" },
     { src: "мем2.jpg", text: "от Азизика" },
@@ -115,7 +120,7 @@ const cloudContent = [
 
 const CLOUD_SIZE_FACTOR = 0.55; 
 const CLOUD_SPEED = 0.9;        
-const GAP_BETWEEN_CLOUDS = 50; 
+const GAP_BETWEEN_CLOUDS = 20; 
 
 // --- ГРАФИКА ---
 let W, H;
@@ -160,8 +165,7 @@ class PhotoCloud {
         this.totalW = contentWidth + this.paddingX * 2;
         this.totalH = imgH + this.textHeight + this.paddingY * 2;
         
-        // ВАЖНО: Это поле нужно для проверки выхода за экран
-        this.width = this.totalW;
+        this.width = this.totalW; // Для проверки выхода за экран
 
         this.blobs = [];
         this.blobs.push({x: 0, y: 0, r: Math.max(this.totalW, this.totalH) * 0.5});
@@ -257,42 +261,44 @@ const center = { x: W/2, y: H*0.19 };
 function lerp(a, b, t) { return a + (b - a) * t; }
 function ease(t) { return t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
 
-// === ИЗМЕНЕННАЯ ФУНКЦИЯ СТАРТА (СИНХРОНИЗАЦИЯ) ===
+// === ИСПРАВЛЕННАЯ ФУНКЦИЯ СТАРТА ===
 function startCelebration() {
+    // 1. Сразу просим полный экран (это должно быть первым)
     openFullscreen();
-    document.getElementById('startScreen').style.display = 'none';
     
-    // Сначала готовим аудио, но НЕ запускаем анимацию
+    const btn = document.getElementById('startBtn');
+    btn.disabled = true;
+    btn.innerText = "Загрузка..."; // Показываем, что думаем
+    btn.style.background = "#555";
+
     const audio = document.getElementById('bgMusic');
     audio.src = musicPlaylist[0];
     audio.volume = 0.5;
-    
-    // Ждем, пока музыка реально начнет играть
-    audio.onplaying = function() {
-        // Убираем слушатель, чтобы не сработал дважды
-        audio.onplaying = null;
-        
-        // Теперь запускаем анимацию - в идеальный такт
-        resize();
-        stars = createStars();
-        initClouds();
-        generateSnowflakes();
-        startAppearSequence();
-        animate();
-        
-        // Настраиваем переход к следующему треку
-        audio.onended = playNextTrack;
-    };
 
-    // Даем команду играть
-    audio.play().catch(e => {
-        console.log("Автоплей блокирован или ошибка:", e);
-        // Если ошибка звука, все равно запускаем анимацию, чтобы не висело
-        resize();
-        stars = createStars();
-        startAppearSequence();
-        animate();
-    });
+    // 2. Запускаем воспроизведение
+    let playPromise = audio.play();
+
+    if (playPromise !== undefined) {
+        playPromise.then(_ => {
+            // Аудио начало играть! Только теперь запускаем визуал
+            document.getElementById('startScreen').style.display = 'none';
+            resize();
+            stars = createStars();
+            initClouds();
+            generateSnowflakes();
+            startAppearSequence();
+            animate();
+            
+            audio.onended = playNextTrack;
+        })
+        .catch(error => {
+            // Если автоплей заблокирован или ошибка
+            console.log("Play failed:", error);
+            // Все равно запускаем, чтобы не висело
+            document.getElementById('startScreen').style.display = 'none';
+            animate();
+        });
+    }
 }
 
 function playNextTrack() {
@@ -453,20 +459,11 @@ function animate() {
                     cloudsSpawned = true; 
                     
                     let firstCloud = new PhotoCloud(loadedContent[0], 0, 0);
-                    // СТАРТ: Правый край облака (distToRight) должен быть за левым краем экрана
-                    // То есть: CenterX + distToRight = -10 (немного за экраном)
-                    // CenterX = -10 - distToRight
                     let currentX = - (firstCloud.visualHalfWidth + 150); 
 
                     for(let i=0; i<loadedContent.length; i++) { 
                         let tempCloud = new PhotoCloud(loadedContent[i], 0, 0);
-                        
-                        // Используем REAL width (distToRight + distToLeft)
-                        let myHalfW = tempCloud.visualHalfWidth; 
-                        let myLeftPart = tempCloud.visualHalfWidth; 
-                        
-                        // Сдвигаем на левую часть текущего
-                        currentX -= myHalfW; 
+                        let visualWidth = tempCloud.visualHalfWidth * 2; 
                         
                         let cX = currentX;
                         let cY; 
@@ -476,13 +473,17 @@ function animate() {
                         
                         activePhotoClouds.push(new PhotoCloud(loadedContent[i], cX, cY));
                         
-                        // Готовим позицию для следующего: сдвигаем на левую часть текущего + зазор
-                        currentX -= (myLeftPart + GAP_BETWEEN_CLOUDS);
+                        // Двигаем очередь влево
+                        if (i < loadedContent.length - 1) {
+                             let nextTemp = new PhotoCloud(loadedContent[i+1], 0, 0);
+                             let dist = tempCloud.visualHalfWidth + GAP_BETWEEN_CLOUDS + nextTemp.visualHalfWidth;
+                             currentX -= dist;
+                        }
                     }
                 }
                 for (let i = 0; i < activePhotoClouds.length; i++) {
                     let pc = activePhotoClouds[i]; pc.update(); pc.draw();
-                    // Используем totalW (ширина рамки) + запас, чтобы удалять
+                    // Используем totalW + запас
                     if (pc.x > W + pc.width + 100) { activePhotoClouds.splice(i, 1); i--; }
                 }
                 if (cloudsSpawned && activePhotoClouds.length === 0 && !isEnding) {
