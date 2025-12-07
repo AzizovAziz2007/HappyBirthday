@@ -42,7 +42,8 @@
 </head>
 <body>
 
-<audio id="bgMusic"></audio>
+<!-- Preload помогает загрузить музыку заранее -->
+<audio id="bgMusic" preload="auto"></audio>
 
 <video id="finalVideo" controls playsinline preload="auto">
     <source src="video.mp4" type="video/mp4">
@@ -71,7 +72,8 @@ window.onerror = function(msg, url, line) {
 // === 1. МУЗЫКА ===
 const musicPlaylist = ["music1.mp3", "music2.mp3", "music3.mp3"];
 
-// === 2. ФОТО И ПОДПИСИ ===
+// =========================================================
+// === 2. ФОТО И ПОДПИСИ (НОВЫЙ СПИСОК) ===
 const cloudContent = [
     { src: "мем1.jpg", text: "от Азизика" },
     { src: "мем2.jpg", text: "от Азизика" },
@@ -112,7 +114,7 @@ const cloudContent = [
 ];
 
 const CLOUD_SIZE_FACTOR = 0.55; 
-const CLOUD_SPEED = 1.7;        
+const CLOUD_SPEED = 0.9;        
 const GAP_BETWEEN_CLOUDS = 50; 
 
 // --- ГРАФИКА ---
@@ -133,7 +135,6 @@ class PhotoCloud {
         this.y = startY;
         this.speed = CLOUD_SPEED;
 
-        // 1. Размеры
         const baseSize = Math.min(W, H) * CLOUD_SIZE_FACTOR; 
         let imgW = baseSize;
         let imgH = baseSize * 0.7;
@@ -147,25 +148,21 @@ class PhotoCloud {
         this.photoW = imgW;
         this.photoH = imgH;
 
-        // 2. Текст
         ctx.font = `bold ${Math.max(16, Math.floor(imgW * 0.08))}px Arial`;
         const textMetrics = ctx.measureText(this.text);
         const textWidth = textMetrics.width;
         const contentWidth = Math.max(imgW, textWidth);
 
-        // 3. Отступы
         this.paddingX = baseSize * 0.15; 
         this.paddingY = baseSize * 0.15;
         this.textHeight = baseSize * 0.1;
 
-        // Полные размеры рамки
         this.totalW = contentWidth + this.paddingX * 2;
         this.totalH = imgH + this.textHeight + this.paddingY * 2;
         
-        // !!! ИСПРАВЛЕНИЕ: Добавляем свойство width для совместимости с проверкой удаления !!!
-        this.width = this.totalW; 
+        // ВАЖНО: Это поле нужно для проверки выхода за экран
+        this.width = this.totalW;
 
-        // Пузыри
         this.blobs = [];
         this.blobs.push({x: 0, y: 0, r: Math.max(this.totalW, this.totalH) * 0.5});
         
@@ -180,7 +177,6 @@ class PhotoCloud {
         this.blobs.push({x: 0, y: -hh*0.8, r: this.totalW*0.3}); 
         this.blobs.push({x: 0, y: hh*0.8, r: this.totalW*0.3});  
 
-        // Визуальная ширина для стыковки
         this.visualHalfWidth = hw + cornerR; 
     }
 
@@ -261,36 +257,59 @@ const center = { x: W/2, y: H*0.19 };
 function lerp(a, b, t) { return a + (b - a) * t; }
 function ease(t) { return t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
 
+// === ИЗМЕНЕННАЯ ФУНКЦИЯ СТАРТА (СИНХРОНИЗАЦИЯ) ===
 function startCelebration() {
     openFullscreen();
     document.getElementById('startScreen').style.display = 'none';
-    playNextSong();
-    resize();
-    stars = createStars();
-    initClouds();
-    generateSnowflakes();
-    startAppearSequence();
-    animate();
+    
+    // Сначала готовим аудио, но НЕ запускаем анимацию
+    const audio = document.getElementById('bgMusic');
+    audio.src = musicPlaylist[0];
+    audio.volume = 0.5;
+    
+    // Ждем, пока музыка реально начнет играть
+    audio.onplaying = function() {
+        // Убираем слушатель, чтобы не сработал дважды
+        audio.onplaying = null;
+        
+        // Теперь запускаем анимацию - в идеальный такт
+        resize();
+        stars = createStars();
+        initClouds();
+        generateSnowflakes();
+        startAppearSequence();
+        animate();
+        
+        // Настраиваем переход к следующему треку
+        audio.onended = playNextTrack;
+    };
+
+    // Даем команду играть
+    audio.play().catch(e => {
+        console.log("Автоплей блокирован или ошибка:", e);
+        // Если ошибка звука, все равно запускаем анимацию, чтобы не висело
+        resize();
+        stars = createStars();
+        startAppearSequence();
+        animate();
+    });
+}
+
+function playNextTrack() {
+    if (isEnding) return;
+    currentSongIndex++;
+    if (currentSongIndex >= musicPlaylist.length) currentSongIndex = 0;
+    
+    const audio = document.getElementById('bgMusic');
+    audio.src = musicPlaylist[currentSongIndex];
+    audio.play();
+    audio.onended = playNextTrack;
 }
 
 function openFullscreen() {
     const elem = document.documentElement;
     if (elem.requestFullscreen) elem.requestFullscreen().catch(e=>{});
     else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
-}
-
-function playNextSong() {
-    if (isEnding) return;
-    const audio = document.getElementById('bgMusic');
-    audio.src = musicPlaylist[currentSongIndex];
-    audio.volume = 0.5;
-    audio.play().catch(e => console.log(e));
-    audio.onended = function() {
-        if (isEnding) return; 
-        currentSongIndex++; 
-        if (currentSongIndex >= musicPlaylist.length) currentSongIndex = 0;
-        playNextSong();
-    };
 }
 
 function launchFinalVideo() {
@@ -434,12 +453,20 @@ function animate() {
                     cloudsSpawned = true; 
                     
                     let firstCloud = new PhotoCloud(loadedContent[0], 0, 0);
-                    // СТАРТ: Учитываем РЕАЛЬНУЮ ВИЗУАЛЬНУЮ ширину (с пузырями) + запас
-                    let currentX = - (firstCloud.visualHalfWidth + 50); 
+                    // СТАРТ: Правый край облака (distToRight) должен быть за левым краем экрана
+                    // То есть: CenterX + distToRight = -10 (немного за экраном)
+                    // CenterX = -10 - distToRight
+                    let currentX = - (firstCloud.visualHalfWidth + 150); 
 
                     for(let i=0; i<loadedContent.length; i++) { 
                         let tempCloud = new PhotoCloud(loadedContent[i], 0, 0);
-                        let visualWidth = tempCloud.visualHalfWidth * 2; 
+                        
+                        // Используем REAL width (distToRight + distToLeft)
+                        let myHalfW = tempCloud.visualHalfWidth; 
+                        let myLeftPart = tempCloud.visualHalfWidth; 
+                        
+                        // Сдвигаем на левую часть текущего
+                        currentX -= myHalfW; 
                         
                         let cX = currentX;
                         let cY; 
@@ -449,13 +476,8 @@ function animate() {
                         
                         activePhotoClouds.push(new PhotoCloud(loadedContent[i], cX, cY));
                         
-                        // Отступ тоже считаем по визуальной ширине
-                        // Сдвигаем на половину этого + половину следующего (если есть)
-                        if (i < loadedContent.length - 1) {
-                             let nextTemp = new PhotoCloud(loadedContent[i+1], 0, 0);
-                             let dist = tempCloud.visualHalfWidth + GAP_BETWEEN_CLOUDS + nextTemp.visualHalfWidth;
-                             currentX -= dist;
-                        }
+                        // Готовим позицию для следующего: сдвигаем на левую часть текущего + зазор
+                        currentX -= (myLeftPart + GAP_BETWEEN_CLOUDS);
                     }
                 }
                 for (let i = 0; i < activePhotoClouds.length; i++) {
@@ -492,8 +514,3 @@ function animate() {
 </script>
 </body>
 </html>
-
-
-
-
-
