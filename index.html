@@ -113,7 +113,8 @@ const cloudContent = [
 ];
 
 const CLOUD_SIZE_FACTOR = 0.55; 
-const CLOUD_SPEED = 1.7; // ТВОЯ СКОРОСТЬ
+// === СКОРОСТЬ ВЕРНУЛ НА 1.7 ===
+const CLOUD_SPEED = 1.7;        
 const GAP_BETWEEN_CLOUDS = 20; 
 
 // --- ГРАФИКА ---
@@ -134,7 +135,6 @@ class PhotoCloud {
         this.y = startY;
         this.speed = CLOUD_SPEED;
 
-        // 1. Считаем размеры
         const baseSize = Math.min(W, H) * CLOUD_SIZE_FACTOR; 
         let imgW = baseSize;
         let imgH = baseSize * 0.7;
@@ -159,7 +159,6 @@ class PhotoCloud {
 
         this.totalW = contentWidth + this.paddingX * 2;
         this.totalH = imgH + this.textHeight + this.paddingY * 2;
-        
         this.width = this.totalW; 
 
         this.blobs = [];
@@ -182,7 +181,6 @@ class PhotoCloud {
     draw() {
         ctx.save();
         ctx.translate(this.x, this.y);
-
         ctx.beginPath();
         const r = 40; 
         const hw = this.totalW / 2;
@@ -198,7 +196,6 @@ class PhotoCloud {
         ctx.shadowBlur = 30; 
         ctx.fillStyle = '#FFFFFF'; 
         ctx.fill();
-        
         ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
 
         if (this.text) {
@@ -214,10 +211,7 @@ class PhotoCloud {
             ctx.drawImage(this.img, -this.photoW/2, -this.photoH/2 + (this.textHeight/2), this.photoW, this.photoH);
             ctx.strokeStyle = "rgba(200,200,200,0.5)"; ctx.lineWidth = 1;
             ctx.strokeRect(-this.photoW/2, -this.photoH/2 + (this.textHeight/2), this.photoW, this.photoH);
-        } else {
-            ctx.fillStyle = "#eee"; 
-            ctx.fillRect(-this.photoW/2, -this.photoH/2, this.photoW, this.photoH);
-        }
+        } else { ctx.fillStyle = "#eee"; ctx.fillRect(-this.photoW/2, -this.photoH/2, this.photoW, this.photoH); }
         ctx.restore();
     }
     update() { this.x += this.speed; }
@@ -247,10 +241,8 @@ let isEnding = false;
 let fadeOpacity = 0;
 let videoTriggered = false;
 let currentSongIndex = 0;
+let globalStartTime = 0;
 
-const startMinY = () => H * 0.60;
-const startMaxY = () => H * 0.80; 
-const minX = () => 0.09 * W; const maxX = () => 0.91 * W;
 const center = { x: W/2, y: H*0.19 };
 
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -258,18 +250,14 @@ function ease(t) { return t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
 
 function startCelebration() {
     openFullscreen();
-    
     const btn = document.getElementById('startBtn');
     btn.disabled = true;
-    btn.innerText = "Загрузка..."; 
-    btn.style.background = "#555";
-
+    btn.innerText = "Загрузка..."; btn.style.background = "#555";
     const audio = document.getElementById('bgMusic');
     audio.src = musicPlaylist[0];
     audio.volume = 0.5;
 
     let playPromise = audio.play();
-
     if (playPromise !== undefined) {
         playPromise.then(_ => {
             document.getElementById('startScreen').style.display = 'none';
@@ -277,13 +265,14 @@ function startCelebration() {
             stars = createStars();
             initClouds();
             generateSnowflakes();
+            globalStartTime = Date.now();
             startAppearSequence();
             animate();
             audio.onended = playNextTrack;
-        })
-        .catch(error => {
+        }).catch(error => {
             console.log("Play failed:", error);
             document.getElementById('startScreen').style.display = 'none';
+            globalStartTime = Date.now();
             animate();
         });
     }
@@ -293,7 +282,6 @@ function playNextTrack() {
     if (isEnding) return;
     currentSongIndex++;
     if (currentSongIndex >= musicPlaylist.length) currentSongIndex = 0;
-    
     const audio = document.getElementById('bgMusic');
     audio.src = musicPlaylist[currentSongIndex];
     audio.play();
@@ -319,26 +307,77 @@ function launchFinalVideo() {
     });
 }
 
+// === ГЕОМЕТРИЧЕСКИЙ СТРЕЛЕЦ (13 Звезд) ===
+const sagittariusCoords = [
+    // 1. СТРЕЛА (7 звезд) - Диагональ
+    {x: 0.20, y: 0.80}, // 0. Хвост
+    {x: 0.30, y: 0.70}, // 1
+    {x: 0.40, y: 0.60}, // 2
+    {x: 0.50, y: 0.50}, // 3. Центр пересечения
+    {x: 0.60, y: 0.40}, // 4
+    {x: 0.70, y: 0.30}, // 5
+    {x: 0.80, y: 0.20}, // 6. Острие
+
+    // 2. НАКОНЕЧНИК (2 звезды) - Галочка
+    {x: 0.70, y: 0.20}, // 7. Верхний ус
+    {x: 0.80, y: 0.30}, // 8. Нижний ус
+
+    // 3. ЛУК (4 звезды) - Перпендикулярная линия
+    {x: 0.20, y: 0.20}, // 9. Верхний конец лука
+    {x: 0.35, y: 0.35}, // 10.
+    {x: 0.65, y: 0.65}, // 11.
+    {x: 0.80, y: 0.80}  // 12. Нижний конец лука
+];
+
+// Пары линий (соединяем только логически)
+const constLines = [
+    // Древко стрелы
+    [0,1], [1,2], [2,3], [3,4], [4,5], [5,6],
+    // Наконечник
+    [6,7], [6,8],
+    // Лук (проходит через центр 3)
+    [9,10], [10,3], [3,11], [11,12]
+];
+
 function createStars() {
-    const totalStars = 13;
-    let sector = (maxX()-minX())/totalStars; let arr = [];
-    for (let i=0; i<totalStars; i++)
+    let arr = [];
+    for (let i=0; i<13; i++) {
+        let pos = sagittariusCoords[i];
         arr.push({ 
-            sx: minX()+i*sector+Math.random()*sector*0.7, 
-            sy: startMinY()+Math.random()*(startMaxY()-startMinY()), 
-            size: 13+Math.random()*6, 
+            sx: pos.x * W, 
+            sy: pos.y * H, 
+            size: 13 + Math.random()*6, 
             state: 'hidden', appearStart: 0, flyStart: 0, mergeStart: 0,
             angle: 0, 
-            spinSpeed: (Math.random() > 0.5 ? 1 : -1) * (0.05 + Math.random() * 0.05) 
+            spinSpeed: (Math.random() > 0.5 ? 1 : -1) * (0.05 + Math.random() * 0.05),
+            currentOpacity: 0
         });
+    }
     return arr;
 }
 
 function generateSnowflakes() { snowflakes=[]; for(let i=0;i<65;i++) snowflakes.push({x: Math.random()*W, y: Math.random()*H, r: 1.35+Math.random()*1.7, a: 0.42+Math.random()*0.42}); }
 function initClouds() { clouds = []; for(let i=0; i<6; i++) clouds.push({x: Math.random()*W, y: Math.random()*(H*0.5), size: 0.4+Math.random()*0.4, speed: 0.2+Math.random()*0.3}); }
 
-function startAppearSequence() { for (let i=0; i<stars.length; i++) setTimeout(()=> { stars[i].state="appearing"; stars[i].appearStart=Date.now(); }, 480*i); setTimeout(()=>moveAllToCenter(), 480*stars.length+400); }
-function moveAllToCenter() { for (let star of stars) { star.state="flying"; star.flyStart=Date.now(); } }
+// === ТАЙМИНГ ===
+const APPEAR_INTERVAL = 350; 
+const MERGE_DELAY = 6640; 
+
+function startAppearSequence() {
+    for (let i=0; i<stars.length; i++) {
+        stars[i].appearStart = globalStartTime + i * APPEAR_INTERVAL;
+        stars[i].state = "hidden";
+    }
+    setTimeout(() => moveAllToCenter(), MERGE_DELAY);
+}
+
+function moveAllToCenter() { 
+    for (let star of stars) { 
+        star.state = "flying"; 
+        star.flyStart = Date.now(); 
+    } 
+}
+
 function startMerge() { if (!mergeStarted) { mergeStarted=true; mergeStartTime=Date.now(); flashActive=true; flashStartTime=mergeStartTime; for(let s of stars) {s.state="merging"; s.mergeStart=mergeStartTime;} } }
 function startBigStar() { if (!bigStarMode) { bigStarMode = true; bigStarStart = Date.now(); } }
 function startGroundFlash() { groundFlashActive = true; groundFlashStart = Date.now(); }
@@ -350,6 +389,37 @@ function drawStarShape(x, y, r, color, opacity=1, shadow=12, rotation=0) {
     for (let i=0; i<5; i++) { ctx.lineTo(r*Math.cos(-Math.PI/2+i*2*Math.PI/5), r*Math.sin(-Math.PI/2+i*2*Math.PI/5)); ctx.lineTo(r/2*Math.cos(-Math.PI/2+(i*2+1)*Math.PI/5), r/2*Math.sin(-Math.PI/2+(i*2+1)*Math.PI/5)); }
     ctx.closePath(); ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = shadow; ctx.fill(); ctx.restore();
 }
+
+function drawConstellationLines() {
+    let timeSinceStart = Date.now() - globalStartTime;
+    let fadeStart = MERGE_DELAY - 500;
+    
+    let globalLineAlpha = 1;
+    if (timeSinceStart > fadeStart) {
+        globalLineAlpha = 1 - (timeSinceStart - fadeStart) / 500;
+        if (globalLineAlpha < 0) globalLineAlpha = 0;
+    }
+    if (globalLineAlpha <= 0) return;
+
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255, 215, 0, 0.6)'; 
+    
+    constLines.forEach(pair => {
+        let s1 = stars[pair[0]];
+        let s2 = stars[pair[1]];
+        if (s1.currentOpacity > 0.1 && s2.currentOpacity > 0.1) {
+            let lineAlpha = Math.min(s1.currentOpacity, s2.currentOpacity) * globalLineAlpha;
+            ctx.globalAlpha = lineAlpha;
+            ctx.beginPath();
+            ctx.moveTo(s1.sx, s1.sy);
+            ctx.lineTo(s2.sx, s2.sy);
+            ctx.stroke();
+        }
+    });
+    ctx.restore();
+}
+
 function drawWinterBackground() {
     let grad = ctx.createLinearGradient(0,0,0,H); grad.addColorStop(0,'#EAF0FA'); grad.addColorStop(0.5,'#c5deee'); grad.addColorStop(1,'#fbeff3');
     ctx.fillStyle=grad; ctx.fillRect(0,0,W,H);
@@ -357,22 +427,23 @@ function drawWinterBackground() {
     let sunGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, sunR*1.15); sunGrad.addColorStop(0, 'rgba(255,245,220,1)'); sunGrad.addColorStop(1, 'rgba(255,236,200,0)');
     ctx.save(); ctx.globalAlpha = 0.96; ctx.beginPath(); ctx.arc(sunX, sunY, sunR*1.1, 0, 2*Math.PI); ctx.fillStyle = sunGrad; ctx.shadowColor = 'rgba(255,233,180,0.35)'; ctx.shadowBlur = 38; ctx.fill(); ctx.restore();
 }
+
+// === САМОЛЕТ БЕЗ ПРОПЕЛЛЕРА ===
 function drawPlaneVisuals(x, y) {
     ctx.save(); ctx.translate(x, y); const scale = Math.min(W, H) / 1000; ctx.scale(scale * 1.5, scale * 1.5); 
+    
     ctx.fillStyle = 'rgba(0,0,0,0.1)'; ctx.beginPath(); ctx.ellipse(0, 20, 60, 15, 0, 0, Math.PI*2); ctx.fill();
     ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.ellipse(0, 0, 60, 15, 0, 0, Math.PI*2); ctx.fill();
     ctx.strokeStyle = '#999'; ctx.lineWidth = 1; ctx.stroke();
     ctx.fillStyle = '#CC0000'; ctx.beginPath(); ctx.moveTo(-40, -5); ctx.lineTo(-60, -25); ctx.lineTo(-55, -5); ctx.fill();
     ctx.fillStyle = '#DDDDDD'; ctx.beginPath(); ctx.moveTo(10, 5); ctx.lineTo(-10, 25); ctx.lineTo(20, 25); ctx.fill();
     
-    // Нос самолета (вместо пропеллера)
-    ctx.fillStyle = '#555';
-    ctx.beginPath();
-    ctx.ellipse(60, 0, 5, 10, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = '#87CEEB'; ctx.beginPath(); ctx.ellipse(15, -8, 10, 6, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
+    // Нос
+    ctx.fillStyle = '#87CEEB'; ctx.beginPath(); ctx.ellipse(15, -8, 10, 6, 0, 0, Math.PI*2); ctx.fill(); 
+    
+    ctx.restore();
 }
+
 function drawBanner(px, py) {
     const text = "С ДНЕМ РОЖДЕНИЯ!"; const scale = Math.min(W, H) / 1000; const finalScale = scale * 1.5;
     ctx.save(); ctx.font = `bold ${24 * finalScale}px Arial`; const textMetrics = ctx.measureText(text); const bannerWidth = textMetrics.width + (40 * finalScale); const bannerHeight = 40 * finalScale;
@@ -387,10 +458,19 @@ function drawBanner(px, py) {
     ctx.fillStyle = '#FF4500'; ctx.textAlign = "center"; ctx.textBaseline = "middle"; const centerWave = Math.sin((bannerWidth/2 / 20) + time) * (5 * finalScale); ctx.fillText(text, bannerStartX - bannerWidth/2, py + centerWave); ctx.restore();
 }
 
+function drawFullFlash(opacity) { 
+    ctx.save(); 
+    ctx.globalAlpha = opacity; 
+    ctx.fillStyle = 'rgba(255, 250, 210, 1)'; 
+    ctx.fillRect(0,0,W,H); 
+    ctx.restore(); 
+}
+
 // === АНИМАЦИЯ ===
 function animate() {
     center.x = W/2; 
     let now = Date.now(); 
+    let timeSinceStart = now - globalStartTime;
 
     if (!transitionedToMorning) { 
         ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H); 
@@ -399,14 +479,25 @@ function animate() {
     }
 
     if (!transitionedToMorning) {
+        drawConstellationLines();
+
         let allInCenter = stars.every(s => s.state==="inCenter") && !mergeStarted;
         
-        for(let star of stars) {
-            if(star.state==="hidden")continue; 
+        for(let i=0; i<stars.length; i++) {
+            let star = stars[i];
+            
+            if (star.state === 'hidden' && now >= star.appearStart) {
+                star.state = "appearing";
+            }
+            if (star.state === "appearing") {
+                if (star.currentOpacity < 1) star.currentOpacity += 0.05;
+                if (star.currentOpacity >= 1) star.state = "visible";
+            }
+
             let t=0;
             if(star.state === "flying") { star.angle += 0.15; }
-            if(star.state==="appearing") { t = Math.min((now-star.appearStart)/400, 1); if (t===1) star.state="visible"; }
-            else if(star.state==="visible") t=1; 
+
+            if(star.state==="appearing" || star.state==="visible") t=1; 
             else if(star.state==="flying") { 
                 t = Math.min((now-star.flyStart)/1000, 1); 
                 var x=lerp(star.sx,center.x,t), y=lerp(star.sy,center.y,t); 
@@ -415,8 +506,11 @@ function animate() {
             }
             else if(star.state==="inCenter") { drawStarShape(center.x,center.y,star.size,'gold',1, 12, 0); continue;} 
             else if(star.state==="merging") { let mt = Math.min((now-star.mergeStart)/700,1); drawStarShape(center.x,center.y,star.size,'gold',1-mt, 12, 0); continue;}
-            let drawAngle = (star.state === "flying") ? star.angle : 0;
-            drawStarShape(star.sx, star.sy, star.size, 'gold', t, 12, drawAngle);
+            
+            if (star.state !== 'hidden') {
+                let drawAngle = (star.state === "flying") ? star.angle : 0;
+                drawStarShape(star.sx, star.sy, star.size, 'gold', star.currentOpacity, 12, drawAngle);
+            }
         }
 
         if (allInCenter) startMerge();
@@ -453,7 +547,6 @@ function animate() {
                     cloudsSpawned = true; 
                     
                     let firstCloud = new PhotoCloud(loadedContent[0], 0, 0);
-                    // (Ширина облака * 0.85) + 50
                     let currentX = - (firstCloud.visualHalfWidth * 2 * 0.85 + 50); 
 
                     for(let i=0; i<loadedContent.length; i++) { 
@@ -468,13 +561,11 @@ function animate() {
                         
                         activePhotoClouds.push(new PhotoCloud(loadedContent[i], cX, cY));
                         
-                        // Сдвигаем влево
                         currentX -= (visualWidth + GAP_BETWEEN_CLOUDS);
                     }
                 }
                 for (let i = 0; i < activePhotoClouds.length; i++) {
                     let pc = activePhotoClouds[i]; pc.update(); pc.draw();
-                    // Используем width для проверки ухода за экран
                     if (pc.x > W + pc.width + 100) { activePhotoClouds.splice(i, 1); i--; }
                 }
                 if (cloudsSpawned && activePhotoClouds.length === 0 && !isEnding) {
@@ -486,7 +577,8 @@ function animate() {
         }
 
         if(t<=1 && groundFlashActive){ 
-            ctx.save(); ctx.globalAlpha = 1.09*(1-Math.pow(t,2.3)); ctx.fillStyle = 'rgba(255, 250, 210, 1)'; ctx.fillRect(0,0,W,H); ctx.restore(); 
+            let flashOp = 1.09*(1-Math.pow(t,2.3)); 
+            if (flashOp > 0) drawFullFlash(flashOp);
         }
         if (t>0.48 && !transitionedToMorning) { transitionedToMorning = true; generateSnowflakes(); initClouds(); }
     }
